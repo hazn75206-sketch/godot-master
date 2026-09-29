@@ -1040,6 +1040,16 @@ public:
 	void restart_editor(bool p_goto_project_manager = false);
 	void unload_editor_addons();
 
+	// Rescan the project filesystem and reload any scenes / project settings
+	// that changed on disk, without restarting the editor. Used by the MCP
+	// `refresh` tool and by the "always reload" external-changes setting.
+	void refresh_external_changes();
+
+	// Periodic poll used by the MCP server: scan disk changes and act on them
+	// (auto-reload if mcp/auto_reload_external is on, else show the dialog).
+	// The dialog is never re-shown while it is already visible.
+	void poll_external_changes();
+
 	void open_setting_override(const String &p_property);
 	void notify_settings_overrides_changed();
 
