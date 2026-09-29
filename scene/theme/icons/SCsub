@@ -1,0 +1,17 @@
+#!/usr/bin/env python
+from misc.utility.scons_hints import *
+
+Import("env")
+
+import default_theme_icons_builders
+
+sources = Glob("*.svg")
+if env["target"] in ["editor", "template_debug"]:
+    # These are only needed for remote debugging.
+    sources += Glob("debug_icons/*.svg")
+
+env.CommandNoCache(
+    "#scene/theme/default_theme_icons.gen.h",
+    sources,
+    env.Run(default_theme_icons_builders.make_default_theme_icons_action),
+)
