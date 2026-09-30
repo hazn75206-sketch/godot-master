@@ -34,7 +34,7 @@ void OpencodeDockPlugin::_enter_plugin() {
 	output->set_use_bbcode(true);
 	output->set_scroll_follow(true);
 	output->set_selection_enabled(true);
-	output->set_custom_minimum_size(Vector2(300, 240));
+	output->set_custom_minimum_size(Vector2(260, 160));
 	output->set_v_size_flags(Control::SIZE_EXPAND_FILL);
 	dock->add_child(output);
 
@@ -56,7 +56,7 @@ void OpencodeDockPlugin::_enter_plugin() {
 	input->connect("text_submitted", callable_mp(this, &OpencodeDockPlugin::_on_send_text));
 	send_btn->connect("pressed", callable_mp(this, &OpencodeDockPlugin::_on_send));
 
-	add_control_to_dock(DOCK_SLOT_RIGHT_UL, dock);
+	add_control_to_dock(DOCK_SLOT_RIGHT_BR, dock);
 	_append_log("opencode", "Halo! Tulis pertanyaan lalu Kirim/Enter. Tools MCP Godot tersedia.", Color(0.5, 0.85, 1.0));
 }
 
