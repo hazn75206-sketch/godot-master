@@ -3,7 +3,7 @@
 
 #include "core/variant/array.h"
 #include "core/variant/dictionary.h"
-#include "core/string/string.h"
+#include "core/string/ustring.h"
 
 // Agent chat tiruan-opencode di dalam editor (1 aplikasi, tanpa binari/Termux).
 // Provider: OpenAI-compatible HTTP (Zen default + custom base_url/key/model).
