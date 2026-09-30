@@ -2,7 +2,7 @@
 
 #ifdef TOOLS_ENABLED
 
-#include "opencode_runner.h"
+#include "agent_chat.h"
 #include "core/io/json.h"
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
@@ -63,7 +63,7 @@ void OpencodeDockPlugin::_enter_plugin() {
 	row->add_child(send_btn);
 
 	status = memnew(Label);
-	status->set_text("opencode: siap (model gratis)");
+	status->set_text("agent: siap");
 	status->set_autowrap_mode(TextServer::AUTOWRAP_WORD_SMART);
 	dock->add_child(status);
 
@@ -71,7 +71,7 @@ void OpencodeDockPlugin::_enter_plugin() {
 	send_btn->connect("pressed", callable_mp(this, &OpencodeDockPlugin::_on_send));
 
 	add_control_to_dock(DOCK_SLOT_RIGHT_BR, dock);
-	_append_log("opencode", "Halo! Tulis pertanyaan lalu Kirim/Enter. Tools MCP Godot tersedia.", Color(0.5, 0.85, 1.0));
+	_append_log("agent", "Halo! Tulis pertanyaan lalu Kirim/Enter. Tools MCP Godot tersedia.", Color(0.5, 0.85, 1.0));
 }
 
 void OpencodeDockPlugin::_exit_plugin() {
@@ -88,12 +88,9 @@ void OpencodeDockPlugin::_exit_plugin() {
 
 String OpencodeDockPlugin::_current_model() const {
 	EditorSettings *es = EditorSettings::get_singleton();
-	String m = es ? String(es->get_setting("opencode/model")) : String();
+	String m = es ? String(es->get_setting("agent/model")) : String();
 	if (m.is_empty()) {
-		m = "opencode/muse-spark-1.3-contributor-free";
-	}
-	if (m.begins_with("opencode/")) {
-		m = m.substr(9);
+		m = "deepseek-v4-flash";
 	}
 	return m;
 }
@@ -112,9 +109,13 @@ bool OpencodeDockPlugin::_handle_slash(const String &p_text) {
 		return false;
 	}
 	if (p_text == "/help" || p_text.begins_with("/help ")) {
-		_append_log("opencode", "Perintah: /help (bantuan ini), /model (lihat model), /clear (bersihkan layar). Kirim teks biasa untuk bertanya.", Color(0.5, 0.85, 1.0));
+		_append_log("agent", "Perintah: /help (bantuan ini), /model (lihat model), /new (sesi baru), /clear (bersihkan layar). Kirim teks biasa untuk bertanya.", Color(0.5, 0.85, 1.0));
 	} else if (p_text == "/model" || p_text.begins_with("/model ")) {
-		_append_log("opencode", "Model aktif: " + _current_model() + ". Ganti di Editor Settings > opencode/model.", Color(0.5, 0.85, 1.0));
+		_append_log("agent", "Model aktif: " + _current_model() + ". Ganti di Editor Settings > agent/model.", Color(0.5, 0.85, 1.0));
+	} else if (p_text == "/new") {
+		agent_session = agent_chat_new_session();
+		output->clear();
+		_append_log("agent", "Sesi baru dimulai.", Color(0.5, 0.85, 1.0));
 	} else if (p_text == "/clear") {
 		output->clear();
 	} else {
@@ -142,7 +143,7 @@ void OpencodeDockPlugin::_set_busy(bool p_busy) {
 		input->set_editable(!p_busy);
 	}
 	if (status) {
-		status->set_text(p_busy ? "opencode: berpikir..." : "opencode: siap (model gratis)");
+		status->set_text(p_busy ? "agent: berpikir..." : "agent: siap");
 	}
 }
 
@@ -170,46 +171,31 @@ void OpencodeDockPlugin::_on_send_text(const String &p_text) {
 		return;
 	}
 	_set_busy(true);
-	std::thread([this, prompt]() {
-		Dictionary res = opencode_runner_run(prompt);
+	String sid = agent_session;
+	std::thread([this, prompt, sid]() {
+		Dictionary res = agent_chat_send(sid, prompt);
 		call_deferred("_on_result", res);
 	}).detach();
 }
 
 void OpencodeDockPlugin::_on_result(const Dictionary &p_res) {
 	String err = p_res.get("error", String());
-	String out = p_res.get("output", String());
+	String sid = String(p_res.get("session", String()));
+	if (!sid.is_empty()) {
+		agent_session = sid;
+	}
+	Array used = p_res.get("tools_used", Array());
+	for (int i = 0; i < used.size(); i++) {
+		_append_badge(String(used[i]));
+	}
 	if (!err.is_empty()) {
 		_append_log("error", err, Color(1.0, 0.45, 0.45));
-	} else if (out.is_empty()) {
-		_append_log("opencode", "(kosong)", Color(0.6, 0.6, 0.6));
 	} else {
-		// `opencode run --format json` emits line-delimited JSON; show text parts,
-		// badges for tool calls, raw fallback for anything else.
-		String shown;
-		for (const String &line : out.split("\n")) {
-			String l = line.strip_edges();
-			if (l.is_empty()) {
-				continue;
-			}
-			Variant v = JSON::parse_string(l);
-			if (v.get_type() == Variant::DICTIONARY) {
-				Dictionary d = v;
-				String t = String(d.get("type", String()));
-				if (t == "text" && d.has("part")) {
-					Dictionary part = d["part"];
-					shown += String(part.get("text", String()));
-					continue;
-				}
-				if (t == "tool" || t == "tool_use" || d.has("tool")) {
-					String tname = String(d.get("tool", d.get("name", t)));
-					_append_badge(tname);
-					continue;
-				}
-			}
-			shown += l + "\n";
+		String out = String(p_res.get("text", String())).strip_edges();
+		if (out.is_empty()) {
+			out = "(kosong)";
 		}
-		_append_log("opencode", shown.strip_edges(), Color(0.9, 0.9, 0.9));
+		_append_log("agent", out, Color(0.9, 0.9, 0.9));
 	}
 	_set_busy(false);
 }

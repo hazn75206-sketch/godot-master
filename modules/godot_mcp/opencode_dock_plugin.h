@@ -23,6 +23,7 @@ class OpencodeDockPlugin : public EditorPlugin {
 	Button *send_btn = nullptr;
 	Label *status = nullptr;
 	Label *model_lbl = nullptr;
+	String agent_session;
 	bool busy = false;
 
 	void _append_log(const String &p_who, const String &p_text, const Color &p_color);
