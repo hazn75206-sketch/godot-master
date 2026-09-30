@@ -1,11 +1,14 @@
 #include "agent_chat.h"
 
+#include "core/crypto/crypto.h"
 #include "core/io/dir_access.h"
 #include "core/io/file_access.h"
 #include "core/io/http_client.h"
 #include "core/io/json.h"
 #include "core/object/property_info.h"
+#include "core/os/os.h"
 #include "core/os/time.h"
+#include "core/config/project_settings.h"
 #include "editor/settings/editor_settings.h"
 #include "mcp_server.h"
 
@@ -135,71 +138,87 @@ static String agent_tool_result_text(const Variant &p_res) {
 static Variant agent_http_post(const String &p_url, const String &p_key, const Dictionary &p_body, int p_timeout_sec, String &r_error) {
 	String url = p_url.strip_edges();
 	bool use_tls = url.begins_with("https://");
-	String rest = url.get_slicec("://", 1);
-	String host = rest.get_slicec("/", 0);
-	String path = "/" + rest.get_slice("/", 1);
+	int sep = url.find("://");
+	String rest = sep == -1 ? url : url.substr(sep + 3);
+	int slash = rest.find("/");
+	String host = slash == -1 ? rest : rest.substr(0, slash);
+	String path = slash == -1 ? "/" : rest.substr(slash);
 	int port = use_tls ? 443 : 80;
-	if (host.contains(":")) {
-		port = host.get_slicec(":", 1).to_int();
-		host = host.get_slicec(":", 0);
+	int colon = host.find(":");
+	if (colon != -1) {
+		port = host.substr(colon + 1).to_int();
+		host = host.substr(0, colon);
 	}
-	HTTPClient client;
-	Error err = client.connect_to_host(host, port, use_tls);
+	Ref<TLSOptions> tls;
+	if (use_tls) {
+		tls = TLSOptions::client();
+	}
+	HTTPClient *client = HTTPClient::create();
+	Error err = client->connect_to_host(host, port, tls);
 	if (err != OK) {
+		memdelete(client);
 		r_error = "Tidak bisa konek ke " + host;
 		return Variant();
 	}
 	uint64_t t0 = Time::get_singleton()->get_ticks_msec();
-	while (client.get_status() == HTTPClient::STATUS_CONNECTING || client.get_status() == HTTPClient::STATUS_RESOLVING) {
-		client.poll();
+	while (client->get_status() == HTTPClient::STATUS_CONNECTING || client->get_status() == HTTPClient::STATUS_RESOLVING) {
+		client->poll();
 		if (Time::get_singleton()->get_ticks_msec() - t0 > uint64_t(p_timeout_sec) * 1000) {
+			memdelete(client);
 			r_error = "Timeout konek ke " + host;
 			return Variant();
 		}
 		OS::get_singleton()->delay_msec(50);
 	}
-	if (client.get_status() != HTTPClient::STATUS_CONNECTED) {
+	if (client->get_status() != HTTPClient::STATUS_CONNECTED) {
+		memdelete(client);
 		r_error = "Gagal konek ke " + host;
 		return Variant();
 	}
-	PackedStringArray headers;
+	Vector<String> headers;
 	headers.append("Content-Type: application/json");
 	if (!p_key.is_empty()) {
 		headers.append("Authorization: Bearer " + p_key);
 	}
 	String body = JSON::stringify(p_body);
-	err = client.request(HTTPClient::METHOD_POST, path, headers, body);
+	CharString body_utf8 = body.utf8();
+	err = client->request(HTTPClient::METHOD_POST, path, headers, (const uint8_t *)body_utf8.get_data(), body_utf8.length());
 	if (err != OK) {
+		memdelete(client);
 		r_error = "Gagal kirim request.";
 		return Variant();
 	}
 	t0 = Time::get_singleton()->get_ticks_msec();
-	while (client.get_status() == HTTPClient::STATUS_REQUESTING) {
-		client.poll();
+	while (client->get_status() == HTTPClient::STATUS_REQUESTING) {
+		client->poll();
 		if (Time::get_singleton()->get_ticks_msec() - t0 > uint64_t(p_timeout_sec) * 1000) {
+			memdelete(client);
 			r_error = "Timeout tunggu respons model.";
 			return Variant();
 		}
 		OS::get_singleton()->delay_msec(100);
 	}
-	if (!client.has_response()) {
+	if (!client->has_response()) {
+		memdelete(client);
 		r_error = "Tidak ada respons dari model.";
 		return Variant();
 	}
 	PackedByteArray bytes;
-	while (client.get_status() == HTTPClient::STATUS_BODY) {
-		client.poll();
-		PackedByteArray chunk = client.read_response_body_chunk();
+	while (client->get_status() == HTTPClient::STATUS_BODY) {
+		client->poll();
+		PackedByteArray chunk = client->read_response_body_chunk();
 		if (chunk.size() > 0) {
 			bytes.append_array(chunk);
 		}
 		if (Time::get_singleton()->get_ticks_msec() - t0 > uint64_t(p_timeout_sec) * 1000) {
+			memdelete(client);
 			r_error = "Timeout baca respons model.";
 			return Variant();
 		}
 		OS::get_singleton()->delay_msec(20);
 	}
-	int code = client.get_response_code();
+	int code = client->get_response_code();
+	memdelete(client);
 	String text = bytes.get_string_from_utf8();
 	if (code < 200 || code >= 300) {
 		r_error = vformat("Provider error %d: %s", code, text.substr(0, 300));
