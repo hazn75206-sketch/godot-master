@@ -5,13 +5,28 @@
 #include "opencode_runner.h"
 #include "core/io/json.h"
 #include "core/object/callable_mp.h"
+#include "core/object/class_db.h"
+#include "core/variant/dictionary.h"
+
+#include <thread>
 
 void OpencodeDockPlugin::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("_on_result", "res"), &OpencodeDockPlugin::_on_result);
 	ClassDB::bind_method(D_METHOD("_on_send_text", "text"), &OpencodeDockPlugin::_on_send_text);
 }
 
-void OpencodeDockPlugin::_enter_tree() {
+void OpencodeDockPlugin::_notification(int p_notification) {
+	switch (p_notification) {
+		case NOTIFICATION_ENTER_TREE: {
+			_enter_plugin();
+		} break;
+		case NOTIFICATION_EXIT_TREE: {
+			_exit_plugin();
+		} break;
+	}
+}
+
+void OpencodeDockPlugin::_enter_plugin() {
 	dock = memnew(VBoxContainer);
 	dock->set_name("OpenCode");
 
@@ -45,7 +60,7 @@ void OpencodeDockPlugin::_enter_tree() {
 	_append_log("opencode", "Halo! Tulis pertanyaan lalu Kirim/Enter. Tools MCP Godot tersedia.", Color(0.5, 0.85, 1.0));
 }
 
-void OpencodeDockPlugin::_exit_tree() {
+void OpencodeDockPlugin::_exit_plugin() {
 	if (dock) {
 		remove_control_from_docks(dock);
 		dock = nullptr;

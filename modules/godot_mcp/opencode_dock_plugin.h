@@ -34,9 +34,10 @@ protected:
 	static void _bind_methods();
 
 public:
-	virtual String _get_plugin_name() const override { return "OpenCode"; }
-	virtual void _enter_tree() override;
-	virtual void _exit_tree() override;
+	virtual String get_plugin_name() const override { return "OpenCode"; }
+	virtual void _notification(int p_notification);
+	void _enter_plugin();
+	void _exit_plugin();
 };
 
 #endif // TOOLS_ENABLED
