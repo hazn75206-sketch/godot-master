@@ -22,6 +22,7 @@
 #include "editor/editor_interface.h"
 #include "editor/settings/editor_settings.h"
 #include "mcp_server.h"
+#include "opencode_runner.h"
 #include "scene/main/node.h"
 #include "scene/main/scene_tree.h"
 #include "scene/main/viewport.h"
@@ -1083,6 +1084,7 @@ static Variant _tool_editor_state(const Dictionary &p_args) {
 	st["port"] = s ? s->get_port() : -1;
 	st["enabled"] = s ? s->get_enabled() : false;
 	st["godot_version"] = Engine::get_singleton()->get_version_info().get("string", String());
+	st["opencode"] = opencode_runner_status();
 	return mcp_tool_ret_json(st);
 }
 

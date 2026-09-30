@@ -18,6 +18,7 @@
 #include "mcp_http.h"
 #include "mcp_tools.h"
 #include "notch_hider.h"
+#include "opencode_runner.h"
 #include "scene/main/node.h"
 #include "scene/main/scene_tree.h"
 
@@ -258,6 +259,8 @@ void McpServer::register_editor_settings() {
 	// Hide-notch toggle (Editor Settings: android/hide_display_cutout, default ON).
 	notch_hider_register_settings();
 	notch_hider_apply();
+	// Embedded on-device opencode (Editor Settings: opencode/model, opencode/mcp_url).
+	opencode_runner_register_settings();
 	// The Android editor fork lacks GDK window placement settings; define them
 	// so running the project stops spamming ERR_PRINT "does not exist" errors.
 	if (!es->has_setting("run/window_placement/screen")) {
