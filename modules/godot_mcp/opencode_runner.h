@@ -2,7 +2,7 @@
 #define GODOT_OPENCODE_RUNNER_H
 
 #include "core/variant/dictionary.h"
-#include "core/string/string.h"
+#include "core/string/ustring.h"
 
 // Bundled on-device opencode binary (see platform/android/.../opencode/OpencodeRunner.java).
 // Settings: opencode/model, opencode/mcp_url (Editor Settings).
