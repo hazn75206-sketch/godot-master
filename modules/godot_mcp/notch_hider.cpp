@@ -21,7 +21,7 @@ void notch_hider_register_settings() {
 	if (!es->has_setting("android/hide_display_cutout")) {
 		es->set_setting("android/hide_display_cutout", true);
 	}
-	es->add_property_hint(PropertyInfo(Variant::BOOL, "android/hide_display_cutout", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_DEFAULT, "Sembunyikan poni (notch): jendela editor di-letterbox agar tidak menggambar di area notch. Bisa dimatikan."));
+	es->add_property_hint(PropertyInfo(Variant::BOOL, "android/hide_display_cutout", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_DEFAULT, "Layar penuh: pakai seluruh layar termasuk area poni (notch), tanpa bar hitam letterbox. Bisa dimatikan."));
 }
 
 void notch_hider_apply() {

@@ -6,8 +6,10 @@ import android.os.Build;
 import android.view.WindowManager;
 
 /**
- * Hides the display cutout (notch) area by letterboxing the window, so the
- * Godot editor never draws under the notch. Toggleable at runtime.
+ * Uses the full display including the display cutout (notch) area, so the
+ * Godot editor is truly fullscreen with no letterbox bars. The editor UI
+ * itself stays clear of the notch thanks to Godot's cutout padding.
+ * Toggleable at runtime.
  *
  * Called from native code (modules/godot_mcp/notch_hider.cpp).
  */
@@ -23,7 +25,7 @@ public class NotchHider {
 				try {
 					WindowManager.LayoutParams attrs = activity.getWindow().getAttributes();
 					attrs.layoutInDisplayCutoutMode = hidden
-							? WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_NEVER
+							? WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
 							: WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT;
 					activity.getWindow().setAttributes(attrs);
 				} catch (Exception ignored) {
