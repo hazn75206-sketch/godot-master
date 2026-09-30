@@ -168,7 +168,7 @@ static Variant agent_http_post(const String &p_url, const String &p_key, const D
 			r_error = "Timeout konek ke " + host;
 			return Variant();
 		}
-		OS::get_singleton()->delay_msec(50);
+		OS::get_singleton()->delay_usec(50000);
 	}
 	if (client->get_status() != HTTPClient::STATUS_CONNECTED) {
 		memdelete(client);
@@ -196,7 +196,7 @@ static Variant agent_http_post(const String &p_url, const String &p_key, const D
 			r_error = "Timeout tunggu respons model.";
 			return Variant();
 		}
-		OS::get_singleton()->delay_msec(100);
+		OS::get_singleton()->delay_usec(100000);
 	}
 	if (!client->has_response()) {
 		memdelete(client);
@@ -215,11 +215,11 @@ static Variant agent_http_post(const String &p_url, const String &p_key, const D
 			r_error = "Timeout baca respons model.";
 			return Variant();
 		}
-		OS::get_singleton()->delay_msec(20);
+		OS::get_singleton()->delay_usec(20000);
 	}
 	int code = client->get_response_code();
 	memdelete(client);
-	String text = bytes.get_string_from_utf8();
+	String text = String::utf8((const char *)bytes.ptr(), bytes.size());
 	if (code < 200 || code >= 300) {
 		r_error = vformat("Provider error %d: %s", code, text.substr(0, 300));
 		return Variant();
