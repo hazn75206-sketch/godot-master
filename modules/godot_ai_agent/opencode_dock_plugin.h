@@ -8,12 +8,13 @@
 #include "scene/gui/button.h"
 #include "scene/gui/label.h"
 #include "scene/gui/line_edit.h"
+#include "scene/gui/option_button.h"
 #include "scene/gui/rich_text_label.h"
 
 #include <thread>
 
-// Dock chat replika-TUI untuk opencode dalam editor.
-// Backend: binari opencode asli via modules/godot_mcp/opencode_runner.
+// Dock chat replika-TUI untuk agent dalam editor.
+// Backend: agent tiruan-opencode (modules/godot_ai_agent/agent_chat).
 class OpencodeDockPlugin : public EditorPlugin {
 	GDCLASS(OpencodeDockPlugin, EditorPlugin);
 
@@ -21,6 +22,9 @@ class OpencodeDockPlugin : public EditorPlugin {
 	RichTextLabel *output = nullptr;
 	LineEdit *input = nullptr;
 	Button *send_btn = nullptr;
+	Button *cancel_btn = nullptr;
+	OptionButton *model_opt = nullptr;
+	Button *load_btn = nullptr;
 	Label *status = nullptr;
 	Label *model_lbl = nullptr;
 	String agent_session;
@@ -30,8 +34,13 @@ class OpencodeDockPlugin : public EditorPlugin {
 	void _append_badge(const String &p_text);
 	bool _handle_slash(const String &p_text);
 	String _current_model() const;
+	String _current_model_full() const;
 	void _on_send();
 	void _on_send_text(const String &p_text);
+	void _on_cancel();
+	void _on_load_models();
+	void _on_models(const Dictionary &p_res);
+	void _on_model_selected(int p_idx);
 	void _on_result(const Dictionary &p_res);
 	void _set_busy(bool p_busy);
 

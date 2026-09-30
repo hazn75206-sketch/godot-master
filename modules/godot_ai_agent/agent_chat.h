@@ -17,4 +17,11 @@ String agent_chat_new_session();
 // Kembali: { text, tools_used:Array[String], session, error }.
 Dictionary agent_chat_send(const String &p_session_id, const String &p_prompt);
 
+// Minta pembatalan request yang sedang berjalan (dipanggil dari UI thread).
+void agent_chat_cancel();
+
+// Ambil daftar model dari provider (blocking! panggil dari worker thread).
+// Kembali: { models:Array[String], error }.
+Dictionary agent_chat_fetch_models();
+
 #endif // GODOT_AGENT_CHAT_H

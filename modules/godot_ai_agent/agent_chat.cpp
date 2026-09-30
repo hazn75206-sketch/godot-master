@@ -10,12 +10,23 @@
 #include "core/os/time.h"
 #include "core/config/project_settings.h"
 #include "editor/settings/editor_settings.h"
-#include "mcp_server.h"
+#ifdef MODULE_GODOT_MCP_ENABLED
+#include "modules/godot_mcp/mcp_server.h"
+#endif
+
+#include <atomic>
 
 #define AGENT_DEFAULT_BASE_URL "https://opencode.ai/zen/v1/chat/completions"
 #define AGENT_DEFAULT_MODEL "deepseek-v4-flash"
 #define AGENT_DEFAULT_MAX_ROUNDS 8
 #define AGENT_DEFAULT_TIMEOUT_SEC 120
+
+// Cancellation: set from the dock stop button, polled in HTTP waits + tool loop.
+static std::atomic_bool agent_cancel_requested(false);
+
+void agent_chat_cancel() {
+	agent_cancel_requested.store(true);
+}
 
 static String agent_setting_str(const String &p_name, const String &p_default) {
 	EditorSettings *es = EditorSettings::get_singleton();
@@ -162,6 +173,11 @@ static Variant agent_http_post(const String &p_url, const String &p_key, const D
 	}
 	uint64_t t0 = Time::get_singleton()->get_ticks_msec();
 	while (client->get_status() == HTTPClient::STATUS_CONNECTING || client->get_status() == HTTPClient::STATUS_RESOLVING) {
+		if (agent_cancel_requested.load()) {
+			memdelete(client);
+			r_error = "Dibatalkan oleh pengguna.";
+			return Variant();
+		}
 		client->poll();
 		if (Time::get_singleton()->get_ticks_msec() - t0 > uint64_t(p_timeout_sec) * 1000) {
 			memdelete(client);
@@ -190,6 +206,11 @@ static Variant agent_http_post(const String &p_url, const String &p_key, const D
 	}
 	t0 = Time::get_singleton()->get_ticks_msec();
 	while (client->get_status() == HTTPClient::STATUS_REQUESTING) {
+		if (agent_cancel_requested.load()) {
+			memdelete(client);
+			r_error = "Dibatalkan oleh pengguna.";
+			return Variant();
+		}
 		client->poll();
 		if (Time::get_singleton()->get_ticks_msec() - t0 > uint64_t(p_timeout_sec) * 1000) {
 			memdelete(client);
@@ -205,6 +226,11 @@ static Variant agent_http_post(const String &p_url, const String &p_key, const D
 	}
 	PackedByteArray bytes;
 	while (client->get_status() == HTTPClient::STATUS_BODY) {
+		if (agent_cancel_requested.load()) {
+			memdelete(client);
+			r_error = "Dibatalkan oleh pengguna.";
+			return Variant();
+		}
 		client->poll();
 		PackedByteArray chunk = client->read_response_body_chunk();
 		if (chunk.size() > 0) {
@@ -225,6 +251,157 @@ static Variant agent_http_post(const String &p_url, const String &p_key, const D
 		return Variant();
 	}
 	return JSON::parse_string(text);
+}
+
+static String agent_models_url(const String &p_base_url) {
+	String u = p_base_url.strip_edges();
+	while (u.ends_with("/")) {
+		u = u.substr(0, u.length() - 1);
+	}
+	const String suffix = "/chat/completions";
+	if (u.ends_with(suffix)) {
+		u = u.substr(0, u.length() - suffix.length());
+	}
+	if (!u.ends_with("/models")) {
+		u += "/models";
+	}
+	return u;
+}
+
+// Blocking HTTPS GET JSON (untuk /models). Returns parsed response or sets r_error.
+static Variant agent_http_get(const String &p_url, const String &p_key, int p_timeout_sec, String &r_error) {
+	String url = p_url.strip_edges();
+	bool use_tls = url.begins_with("https://");
+	int sep = url.find("://");
+	String rest = sep == -1 ? url : url.substr(sep + 3);
+	int slash = rest.find("/");
+	String host = slash == -1 ? rest : rest.substr(0, slash);
+	String path = slash == -1 ? "/" : rest.substr(slash);
+	int port = use_tls ? 443 : 80;
+	int colon = host.find(":");
+	if (colon != -1) {
+		port = host.substr(colon + 1).to_int();
+		host = host.substr(0, colon);
+	}
+	Ref<TLSOptions> tls;
+	if (use_tls) {
+		tls = TLSOptions::client();
+	}
+	HTTPClient *client = HTTPClient::create();
+	Error err = client->connect_to_host(host, port, tls);
+	if (err != OK) {
+		memdelete(client);
+		r_error = "Tidak bisa konek ke " + host;
+		return Variant();
+	}
+	uint64_t t0 = Time::get_singleton()->get_ticks_msec();
+	while (client->get_status() == HTTPClient::STATUS_CONNECTING || client->get_status() == HTTPClient::STATUS_RESOLVING) {
+		if (agent_cancel_requested.load()) {
+			memdelete(client);
+			r_error = "Dibatalkan oleh pengguna.";
+			return Variant();
+		}
+		client->poll();
+		if (Time::get_singleton()->get_ticks_msec() - t0 > uint64_t(p_timeout_sec) * 1000) {
+			memdelete(client);
+			r_error = "Timeout konek ke " + host;
+			return Variant();
+		}
+		OS::get_singleton()->delay_usec(50000);
+	}
+	if (client->get_status() != HTTPClient::STATUS_CONNECTED) {
+		memdelete(client);
+		r_error = "Gagal konek ke " + host;
+		return Variant();
+	}
+	Vector<String> headers;
+	if (!p_key.is_empty()) {
+		headers.append("Authorization: Bearer " + p_key);
+	}
+	uint8_t dummy = 0;
+	err = client->request(HTTPClient::METHOD_GET, path, headers, &dummy, 0);
+	if (err != OK) {
+		memdelete(client);
+		r_error = "Gagal kirim request.";
+		return Variant();
+	}
+	t0 = Time::get_singleton()->get_ticks_msec();
+	while (client->get_status() == HTTPClient::STATUS_REQUESTING) {
+		if (agent_cancel_requested.load()) {
+			memdelete(client);
+			r_error = "Dibatalkan oleh pengguna.";
+			return Variant();
+		}
+		client->poll();
+		if (Time::get_singleton()->get_ticks_msec() - t0 > uint64_t(p_timeout_sec) * 1000) {
+			memdelete(client);
+			r_error = "Timeout tunggu respons.";
+			return Variant();
+		}
+		OS::get_singleton()->delay_usec(100000);
+	}
+	if (!client->has_response()) {
+		memdelete(client);
+		r_error = "Tidak ada respons.";
+		return Variant();
+	}
+	PackedByteArray bytes;
+	while (client->get_status() == HTTPClient::STATUS_BODY) {
+		if (agent_cancel_requested.load()) {
+			memdelete(client);
+			r_error = "Dibatalkan oleh pengguna.";
+			return Variant();
+		}
+		client->poll();
+		PackedByteArray chunk = client->read_response_body_chunk();
+		if (chunk.size() > 0) {
+			bytes.append_array(chunk);
+		}
+		if (Time::get_singleton()->get_ticks_msec() - t0 > uint64_t(p_timeout_sec) * 1000) {
+			memdelete(client);
+			r_error = "Timeout baca respons.";
+			return Variant();
+		}
+		OS::get_singleton()->delay_usec(20000);
+	}
+	int code = client->get_response_code();
+	memdelete(client);
+	String text = String::utf8((const char *)bytes.ptr(), bytes.size());
+	if (code < 200 || code >= 300) {
+		r_error = vformat("Provider error %d: %s", code, text.substr(0, 300));
+		return Variant();
+	}
+	return JSON::parse_string(text);
+}
+
+Dictionary agent_chat_fetch_models() {
+	Dictionary res;
+	res["models"] = Array();
+	res["error"] = String();
+	String base_url = agent_setting_str("agent/base_url", AGENT_DEFAULT_BASE_URL);
+	String api_key = agent_setting_str("agent/api_key", String());
+	if (api_key.strip_edges().is_empty()) {
+		res["error"] = String("Isi API key dulu di Editor Settings > agent/api_key.");
+		return res;
+	}
+	String err;
+	Variant resp = agent_http_get(agent_models_url(base_url), api_key, 30, err);
+	if (!err.is_empty()) {
+		res["error"] = err;
+		return res;
+	}
+	Array ids;
+	if (resp.get_type() == Variant::DICTIONARY) {
+		Array data = Dictionary(resp).get("data", Array());
+		for (int i = 0; i < data.size(); i++) {
+			if (Dictionary(data[i]).has("id")) {
+				ids.append(String(Dictionary(data[i])["id"]));
+			}
+		}
+	}
+	ids.sort();
+	res["models"] = ids;
+	return res;
 }
 
 static Dictionary agent_system_message() {
@@ -255,14 +432,19 @@ Dictionary agent_chat_send(const String &p_session_id, const String &p_prompt) {
 	}
 
 	String sid = String(res["session"]);
+	agent_cancel_requested.store(false);
 	Array history = agent_load_history(sid);
 	Dictionary user_msg;
 	user_msg["role"] = "user";
 	user_msg["content"] = p_prompt;
 	history.append(user_msg);
 
+#ifdef MODULE_GODOT_MCP_ENABLED
 	McpServer *srv = McpServer::get_singleton();
 	Array tool_defs = srv ? srv->list_tool_defs() : Array();
+#else
+	Array tool_defs;
+#endif
 	Array tools;
 	for (int i = 0; i < tool_defs.size(); i++) {
 		Dictionary td = tool_defs[i];
@@ -278,7 +460,12 @@ Dictionary agent_chat_send(const String &p_session_id, const String &p_prompt) {
 
 	Array tools_used;
 	String final_text;
+	String cancelled;
 	for (int round = 0; round < max_rounds; round++) {
+		if (agent_cancel_requested.load()) {
+			cancelled = "Dibatalkan oleh pengguna.";
+			break;
+		}
 		Dictionary body;
 		body["model"] = model;
 		Array msgs;
@@ -321,6 +508,10 @@ Dictionary agent_chat_send(const String &p_session_id, const String &p_prompt) {
 			break;
 		}
 		for (int i = 0; i < calls.size(); i++) {
+			if (agent_cancel_requested.load()) {
+				cancelled = "Dibatalkan oleh pengguna.";
+				break;
+			}
 			Dictionary call = calls[i];
 			String call_id = String(call.get("id", String()));
 			Dictionary fn = call.get("function", Dictionary());
@@ -333,20 +524,30 @@ Dictionary agent_chat_send(const String &p_session_id, const String &p_prompt) {
 			}
 			tools_used.append(fname);
 			String tout;
-			if (srv) {
-				tout = agent_tool_result_text(srv->execute_tool(fname, fargs));
+#ifdef MODULE_GODOT_MCP_ENABLED
+			McpServer *srv2 = McpServer::get_singleton();
+			if (srv2) {
+				tout = agent_tool_result_text(srv2->execute_tool(fname, fargs));
 			} else {
 				tout = "MCP server tidak tersedia.";
 			}
+#else
+			tout = "MCP server tidak tersedia (modul godot_mcp mati).";
+#endif
 			Dictionary tmsg;
 			tmsg["role"] = "tool";
 			tmsg["tool_call_id"] = call_id;
 			tmsg["content"] = tout;
 			history.append(tmsg);
 		}
+		if (!cancelled.is_empty()) {
+			break;
+		}
 		agent_save_history(sid, history);
 	}
-	if (final_text.is_empty() && String(res["error"]).is_empty()) {
+	if (!cancelled.is_empty()) {
+		res["error"] = cancelled;
+	} else if (final_text.is_empty() && String(res["error"]).is_empty()) {
 		final_text = "(model tidak mengembalikan teks)";
 	}
 	agent_save_history(sid, history);
