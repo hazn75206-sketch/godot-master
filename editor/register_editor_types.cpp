@@ -143,8 +143,8 @@
 #include "editor/scene/3d/skeleton_ik_3d_editor_plugin.h"
 #endif
 
-#ifdef MODULE_GODOT_MCP_ENABLED
-#include "modules/godot_mcp/opencode_dock_plugin.h"
+#ifdef MODULE_GODOT_AI_AGENT_ENABLED
+#include "modules/godot_ai_agent/opencode_dock_plugin.h"
 #endif
 
 void register_editor_types() {
@@ -244,7 +244,7 @@ void register_editor_types() {
 	EditorPlugins::add_by_type<InputEventEditorPlugin>();
 	EditorPlugins::add_by_type<MarginContainerEditorPlugin>();
 	EditorPlugins::add_by_type<MaterialEditorPlugin>();
-#ifdef MODULE_GODOT_MCP_ENABLED
+#ifdef MODULE_GODOT_AI_AGENT_ENABLED
 	EditorPlugins::add_by_type<OpencodeDockPlugin>();
 #endif
 	EditorPlugins::add_by_type<PackedSceneEditorPlugin>();
