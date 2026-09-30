@@ -31,8 +31,8 @@ void OpencodeDockPlugin::_enter_plugin() {
 	dock->set_name("OpenCode");
 
 	output = memnew(RichTextLabel);
-	output->set_bbcode_enabled(true);
-	output->set_scroll_following(true);
+	output->set_use_bbcode(true);
+	output->set_scroll_follow(true);
 	output->set_selection_enabled(true);
 	output->set_custom_minimum_size(Vector2(300, 240));
 	output->set_v_size_flags(Control::SIZE_EXPAND_FILL);
