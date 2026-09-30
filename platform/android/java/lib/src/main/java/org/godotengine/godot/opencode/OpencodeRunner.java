@@ -29,6 +29,7 @@ public class OpencodeRunner {
 	private static final String TAG = "GodotOpencode";
 	private static final String ASSET_PATH = "opencode/opencode.gz";
 	private static final String BIN_NAME = "opencode";
+	private static String cachedVersion = null;
 
 	private static File homeDir(Context context) {
 		return new File(context.getFilesDir(), "opencode-home");
@@ -171,8 +172,11 @@ public class OpencodeRunner {
 		}
 	}
 
-	/** Blocking `opencode --version`. Returns version string or "". */
+	/** Blocking `opencode --version`. Returns version string or "". Result cached. */
 	public static String getVersion(Context context) {
+		if (cachedVersion != null) {
+			return cachedVersion;
+		}
 		String bin = extractBinary(context);
 		if (bin.isEmpty()) {
 			return "";
@@ -186,11 +190,80 @@ public class OpencodeRunner {
 			if (!out.isEmpty()) {
 				// First line usually holds the version.
 				int nl = out.indexOf('\n');
-				return nl == -1 ? out : out.substring(0, nl).trim();
+				String v = nl == -1 ? out : out.substring(0, nl).trim();
+				if (!v.isEmpty()) {
+					cachedVersion = v;
+				}
+				return v;
 			}
 			return "";
 		} catch (Exception e) {
 			return "";
+		}
+	}
+
+	/**
+	 * Staged diagnostics for "opencode binary missing".
+	 * Returns JSON: asset_list, asset_bytes/asset_error, home, home_usable,
+	 * free_mb, bin_exists, bin_size, bin_executable, extract_result,
+	 * version, error.
+	 */
+	public static String diagnose(Context context) {
+		JSONObject d = new JSONObject();
+		try {
+			try {
+				String[] list = context.getAssets().list("opencode");
+				StringBuilder sb = new StringBuilder();
+				if (list != null) {
+					for (int i = 0; i < list.length; i++) {
+						if (i > 0) {
+							sb.append(",");
+						}
+						sb.append(list[i]);
+					}
+				}
+				d.put("asset_list", sb.toString());
+			} catch (Exception e) {
+				d.put("asset_error", "list: " + String.valueOf(e.getMessage()));
+			}
+			try {
+				InputStream a = context.getAssets().open(ASSET_PATH);
+				long total = 0;
+				byte[] b = new byte[65536];
+				int n;
+				while ((n = a.read(b)) != -1) {
+					total += n;
+				}
+				a.close();
+				d.put("asset_bytes", total);
+			} catch (Exception e) {
+				d.put("asset_error", "open: " + String.valueOf(e.getMessage()));
+			}
+			File home = homeDir(context);
+			d.put("home", home.getAbsolutePath());
+			boolean usable = home.isDirectory() || home.mkdirs();
+			d.put("home_usable", usable);
+			try {
+				d.put("free_mb", home.getUsableSpace() / 1048576L);
+			} catch (Exception ignored) {
+			}
+			File bin = binFile(context);
+			d.put("bin_exists", bin.isFile());
+			d.put("bin_size", bin.isFile() ? bin.length() : 0);
+			d.put("bin_executable", bin.canExecute());
+			String p = extractBinary(context);
+			d.put("extract_result", p.isEmpty() ? "FAILED" : "OK");
+			if (!p.isEmpty()) {
+				d.put("version", getVersion(context));
+			}
+			return d.toString();
+		} catch (Exception e) {
+			try {
+				d.put("error", String.valueOf(e.getMessage()));
+				return d.toString();
+			} catch (Exception ignored) {
+				return "{\"error\":\"diagnose failed\"}";
+			}
 		}
 	}
 

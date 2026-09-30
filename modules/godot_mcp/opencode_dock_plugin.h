@@ -22,9 +22,13 @@ class OpencodeDockPlugin : public EditorPlugin {
 	LineEdit *input = nullptr;
 	Button *send_btn = nullptr;
 	Label *status = nullptr;
+	Label *model_lbl = nullptr;
 	bool busy = false;
 
 	void _append_log(const String &p_who, const String &p_text, const Color &p_color);
+	void _append_badge(const String &p_text);
+	bool _handle_slash(const String &p_text);
+	String _current_model() const;
 	void _on_send();
 	void _on_send_text(const String &p_text);
 	void _on_result(const Dictionary &p_res);

@@ -7,6 +7,7 @@
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "core/variant/dictionary.h"
+#include "editor/settings/editor_settings.h"
 
 #include <thread>
 
@@ -29,6 +30,19 @@ void OpencodeDockPlugin::_notification(int p_notification) {
 void OpencodeDockPlugin::_enter_plugin() {
 	dock = memnew(VBoxContainer);
 	dock->set_name("OpenCode");
+
+	HBoxContainer *head = memnew(HBoxContainer);
+	dock->add_child(head);
+	Label *title = memnew(Label);
+	title->set_text("● opencode");
+	title->add_theme_color_override("font_color", Color(0.5, 0.85, 1.0));
+	title->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	head->add_child(title);
+	model_lbl = memnew(Label);
+	model_lbl->set_text(_current_model());
+	model_lbl->add_theme_color_override("font_color", Color(0.6, 0.6, 0.65));
+	model_lbl->add_theme_font_size_override("font_size", 12);
+	head->add_child(model_lbl);
 
 	output = memnew(RichTextLabel);
 	output->set_use_bbcode(true);
@@ -68,7 +82,45 @@ void OpencodeDockPlugin::_exit_plugin() {
 		input = nullptr;
 		send_btn = nullptr;
 		status = nullptr;
+		model_lbl = nullptr;
 	}
+}
+
+String OpencodeDockPlugin::_current_model() const {
+	EditorSettings *es = EditorSettings::get_singleton();
+	String m = es ? String(es->get_setting("opencode/model")) : String();
+	if (m.is_empty()) {
+		m = "opencode/muse-spark-1.3-contributor-free";
+	}
+	if (m.begins_with("opencode/")) {
+		m = m.substr(9);
+	}
+	return m;
+}
+
+void OpencodeDockPlugin::_append_badge(const String &p_text) {
+	if (!output) {
+		return;
+	}
+	output->push_color(Color(1.0, 0.75, 0.3));
+	output->add_text("  ⛭ " + p_text + "\n");
+	output->pop();
+}
+
+bool OpencodeDockPlugin::_handle_slash(const String &p_text) {
+	if (!p_text.begins_with("/")) {
+		return false;
+	}
+	if (p_text == "/help" || p_text.begins_with("/help ")) {
+		_append_log("opencode", "Perintah: /help (bantuan ini), /model (lihat model), /clear (bersihkan layar). Kirim teks biasa untuk bertanya.", Color(0.5, 0.85, 1.0));
+	} else if (p_text == "/model" || p_text.begins_with("/model ")) {
+		_append_log("opencode", "Model aktif: " + _current_model() + ". Ganti di Editor Settings > opencode/model.", Color(0.5, 0.85, 1.0));
+	} else if (p_text == "/clear") {
+		output->clear();
+	} else {
+		_append_log("error", "Perintah tidak dikenal: " + p_text + " (coba /help)", Color(1.0, 0.45, 0.45));
+	}
+	return true;
 }
 
 void OpencodeDockPlugin::_append_log(const String &p_who, const String &p_text, const Color &p_color) {
@@ -110,10 +162,16 @@ void OpencodeDockPlugin::_on_send_text(const String &p_text) {
 	if (busy || p_text.strip_edges().is_empty()) {
 		return;
 	}
-	_append_log("kamu", p_text, Color(0.7, 1.0, 0.7));
+	String prompt = p_text.strip_edges();
+	output->push_color(Color(0.7, 1.0, 0.7));
+	output->add_text("> " + prompt + "\n");
+	output->pop();
+	if (_handle_slash(prompt)) {
+		return;
+	}
 	_set_busy(true);
-	std::thread([this, p_text]() {
-		Dictionary res = opencode_runner_run(p_text);
+	std::thread([this, prompt]() {
+		Dictionary res = opencode_runner_run(prompt);
 		call_deferred("_on_result", res);
 	}).detach();
 }
@@ -126,7 +184,8 @@ void OpencodeDockPlugin::_on_result(const Dictionary &p_res) {
 	} else if (out.is_empty()) {
 		_append_log("opencode", "(kosong)", Color(0.6, 0.6, 0.6));
 	} else {
-		// `opencode run --format json` emits line-delimited JSON; show text parts.
+		// `opencode run --format json` emits line-delimited JSON; show text parts,
+		// badges for tool calls, raw fallback for anything else.
 		String shown;
 		for (const String &line : out.split("\n")) {
 			String l = line.strip_edges();
@@ -136,9 +195,15 @@ void OpencodeDockPlugin::_on_result(const Dictionary &p_res) {
 			Variant v = JSON::parse_string(l);
 			if (v.get_type() == Variant::DICTIONARY) {
 				Dictionary d = v;
-				if (String(d.get("type", String())) == "text" && d.has("part")) {
+				String t = String(d.get("type", String()));
+				if (t == "text" && d.has("part")) {
 					Dictionary part = d["part"];
 					shown += String(part.get("text", String()));
+					continue;
+				}
+				if (t == "tool" || t == "tool_use" || d.has("tool")) {
+					String tname = String(d.get("tool", d.get("name", t)));
+					_append_badge(tname);
 					continue;
 				}
 			}

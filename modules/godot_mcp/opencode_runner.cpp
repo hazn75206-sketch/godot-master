@@ -91,6 +91,16 @@ Dictionary opencode_runner_status() {
 				if (m_ver) {
 					version = opencode_jni_string(env, (jstring)env->CallStaticObjectMethod(cls, m_ver, activity));
 				}
+				jmethodID m_diag = env->GetStaticMethodID(cls, "diagnose", "(Landroid/content/Context;)Ljava/lang/String;");
+				if (m_diag) {
+					String raw = opencode_jni_string(env, (jstring)env->CallStaticObjectMethod(cls, m_diag, activity));
+					Variant parsed = JSON::parse_string(raw);
+					if (parsed.get_type() == Variant::DICTIONARY) {
+						st["diagnose"] = parsed;
+					} else {
+						st["diagnose_raw"] = raw;
+					}
+				}
 			}
 			if (env->ExceptionCheck()) {
 				env->ExceptionClear();
