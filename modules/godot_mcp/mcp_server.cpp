@@ -18,7 +18,6 @@
 #include "mcp_http.h"
 #include "mcp_tools.h"
 #include "notch_hider.h"
-#include "agent_chat.h"
 #include "scene/main/node.h"
 #include "scene/main/scene_tree.h"
 
@@ -259,8 +258,7 @@ void McpServer::register_editor_settings() {
 	// Hide-notch toggle (Editor Settings: android/hide_display_cutout, default ON).
 	notch_hider_register_settings();
 	notch_hider_apply();
-	// Agent chat tiruan-opencode (Editor Settings: agent/base_url, agent/api_key, agent/model).
-	agent_chat_register_settings();
+	// Agent settings didaftarkan modul godot_ai_agent (register_types-nya).
 	// The Android editor fork lacks GDK window placement settings; define them
 	// so running the project stops spamming ERR_PRINT "does not exist" errors.
 	if (!es->has_setting("run/window_placement/screen")) {

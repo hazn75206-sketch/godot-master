@@ -22,7 +22,6 @@
 #include "editor/editor_interface.h"
 #include "editor/settings/editor_settings.h"
 #include "mcp_server.h"
-#include "agent_chat.h"
 #include "scene/main/node.h"
 #include "scene/main/scene_tree.h"
 #include "scene/main/viewport.h"
