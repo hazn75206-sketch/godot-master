@@ -1642,7 +1642,7 @@ void EditorNode::_scan_external_changes() {
 	}
 
 	if (need_reload) {
-		if (bool(EditorSettings::get_singleton()->get_setting("mcp/auto_reload_external"))) {
+		if (bool(EditorSettings::get_singleton()->get_setting("network/mcp/auto_reload_external"))) {
 			refresh_external_changes();
 			return;
 		}
@@ -1671,7 +1671,7 @@ void EditorNode::poll_external_changes() {
 
 void EditorNode::_resave_externally_modified_scenes(String p_action) {
 	if (p_action == "always_reload") {
-		EditorSettings::get_singleton()->set_setting("mcp/auto_reload_external", true);
+		EditorSettings::get_singleton()->set_setting("network/mcp/auto_reload_external", true);
 		refresh_external_changes();
 		return;
 	}

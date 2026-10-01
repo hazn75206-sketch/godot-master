@@ -64,10 +64,10 @@ bool McpServer::get_enabled() const {
 	if (!es) {
 		return false;
 	}
-		if (!es->has_setting("mcp/enabled")) {
+		if (!es->has_setting("network/mcp/enabled")) {
 		return false;
 	}
-	return bool(es->get_setting("mcp/enabled"));
+	return bool(es->get_setting("network/mcp/enabled"));
 }
 
 int McpServer::get_port() const {
@@ -75,10 +75,10 @@ int McpServer::get_port() const {
 	if (!es) {
 		return 8766;
 	}
-		if (!es->has_setting("mcp/port")) {
+		if (!es->has_setting("network/mcp/port")) {
 		return 8766;
 	}
-	return int(es->get_setting("mcp/port"));
+	return int(es->get_setting("network/mcp/port"));
 }
 
 String McpServer::get_bind() const {
@@ -86,10 +86,10 @@ String McpServer::get_bind() const {
 	if (!es) {
 		return "0.0.0.0";
 	}
-	if (!es->has_setting("mcp/bind_mode")) {
+	if (!es->has_setting("network/mcp/bind_mode")) {
 		return "0.0.0.0";
 	}
-	return int(es->get_setting("mcp/bind_mode")) == 1 ? "127.0.0.1" : "0.0.0.0";
+	return int(es->get_setting("network/mcp/bind_mode")) == 1 ? "127.0.0.1" : "0.0.0.0";
 }
 
 int McpServer::get_bind_mode() const {
@@ -97,10 +97,10 @@ int McpServer::get_bind_mode() const {
 	if (!es) {
 		return 0;
 	}
-	if (!es->has_setting("mcp/bind_mode")) {
+	if (!es->has_setting("network/mcp/bind_mode")) {
 		return 0;
 	}
-	return int(es->get_setting("mcp/bind_mode"));
+	return int(es->get_setting("network/mcp/bind_mode"));
 }
 
 int McpServer::get_transport() const {
@@ -108,10 +108,10 @@ int McpServer::get_transport() const {
 	if (!es) {
 		return 0;
 	}
-	if (!es->has_setting("mcp/transport")) {
+	if (!es->has_setting("network/mcp/transport")) {
 		return 0;
 	}
-	return int(es->get_setting("mcp/transport"));
+	return int(es->get_setting("network/mcp/transport"));
 }
 
 String McpServer::get_local_ip() const {
@@ -141,7 +141,7 @@ void McpServer::set_enabled(bool p_enabled) {
 	if (!es) {
 		return;
 	}
-	es->set_setting("mcp/enabled", p_enabled);
+	es->set_setting("network/mcp/enabled", p_enabled);
 	es->save();
 	if (p_enabled) {
 		start_if_enabled();
@@ -240,20 +240,33 @@ void McpServer::register_editor_settings() {
 	if (!es) {
 		return;
 	}
-	if (!es->has_setting("mcp/enabled")) {
-		es->set_setting("mcp/enabled", false);
+	// Sekali migrasi: pindahkan nilai lama mcp/* ke network/mcp/* (Editor Settings > Jaringan).
+	// Aman diulang: hanya menyalin bila kunci lama ada dan kunci baru belum ada.
+	const char *migrated_keys[] = { "enabled", "port", "transport", "bind_mode", "auto_reload_external" };
+	for (const char *k : migrated_keys) {
+		String oldk = String("mcp/") + k;
+		String newk = String("network/mcp/") + k;
+		if (es->has_setting(oldk) && !es->has_setting(newk)) {
+			es->set_setting(newk, es->get_setting(oldk));
+		}
+		if (es->has_setting(oldk)) {
+			es->erase(oldk);
+		}
 	}
-	if (!es->has_setting("mcp/port")) {
-		es->set_setting("mcp/port", 8766);
+	if (!es->has_setting("network/mcp/enabled")) {
+		es->set_setting("network/mcp/enabled", false);
 	}
-	if (!es->has_setting("mcp/transport")) {
-		es->set_setting("mcp/transport", 0);
+	if (!es->has_setting("network/mcp/port")) {
+		es->set_setting("network/mcp/port", 8766);
 	}
-	if (!es->has_setting("mcp/bind_mode")) {
-		es->set_setting("mcp/bind_mode", 0);
+	if (!es->has_setting("network/mcp/transport")) {
+		es->set_setting("network/mcp/transport", 0);
 	}
-	if (!es->has_setting("mcp/auto_reload_external")) {
-		es->set_setting("mcp/auto_reload_external", false);
+	if (!es->has_setting("network/mcp/bind_mode")) {
+		es->set_setting("network/mcp/bind_mode", 0);
+	}
+	if (!es->has_setting("network/mcp/auto_reload_external")) {
+		es->set_setting("network/mcp/auto_reload_external", false);
 	}
 	// Hide-notch toggle (Editor Settings: android/hide_display_cutout, default ON).
 	notch_hider_register_settings();
@@ -266,11 +279,11 @@ void McpServer::register_editor_settings() {
 	if (!es->has_setting("run/window_placement/rect")) {
 		es->set_setting("run/window_placement/rect", Rect2i(0, 0, 0, 0));
 	}
-	es->add_property_hint(PropertyInfo(Variant::BOOL, "mcp/enabled", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_DEFAULT, "Jalankan server MCP saat editor terbuka"));
-	es->add_property_hint(PropertyInfo(Variant::INT, "mcp/transport", PROPERTY_HINT_ENUM, "Keduanya (Streamable HTTP + SSE),Hanya Streamable HTTP,Hanya SSE"));
-	es->add_property_hint(PropertyInfo(Variant::INT, "mcp/bind_mode", PROPERTY_HINT_ENUM, "LAN (bisa diakses dari perangkat lain),Hanya Localhost"));
-	es->add_property_hint(PropertyInfo(Variant::INT, "mcp/port", PROPERTY_HINT_RANGE, "1,65535,1"));
-	es->add_property_hint(PropertyInfo(Variant::BOOL, "mcp/auto_reload_external", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_DEFAULT, "Muat ulang otomatis file yang berubah di luar editor (tanpa konfirmasi)"));
+	es->add_property_hint(PropertyInfo(Variant::BOOL, "network/mcp/enabled", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_DEFAULT, "Jalankan server MCP saat editor terbuka"));
+	es->add_property_hint(PropertyInfo(Variant::INT, "network/mcp/transport", PROPERTY_HINT_ENUM, "Keduanya (Streamable HTTP + SSE),Hanya Streamable HTTP,Hanya SSE"));
+	es->add_property_hint(PropertyInfo(Variant::INT, "network/mcp/bind_mode", PROPERTY_HINT_ENUM, "LAN (bisa diakses dari perangkat lain),Hanya Localhost"));
+	es->add_property_hint(PropertyInfo(Variant::INT, "network/mcp/port", PROPERTY_HINT_RANGE, "1,65535,1"));
+	es->add_property_hint(PropertyInfo(Variant::BOOL, "network/mcp/auto_reload_external", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_DEFAULT, "Muat ulang otomatis file yang berubah di luar editor (tanpa konfirmasi)"));
 	// The MCP server never auto-starts on launch. Keep the poll connected so
 	// enabling/disabling the setting takes effect immediately without a restart.
 	McpServer *s = McpServer::get_singleton();
@@ -284,17 +297,17 @@ void McpServer::register_editor_settings() {
 void McpServer::_update_from_settings() {
 	EditorSettings *es = EditorSettings::get_singleton();
 	if (es) {
-		if (!es->has_setting("mcp/enabled")) {
-			es->set_setting("mcp/enabled", false);
+		if (!es->has_setting("network/mcp/enabled")) {
+			es->set_setting("network/mcp/enabled", false);
 		}
-		if (!es->has_setting("mcp/port")) {
-			es->set_setting("mcp/port", 8766);
+		if (!es->has_setting("network/mcp/port")) {
+			es->set_setting("network/mcp/port", 8766);
 		}
-		if (!es->has_setting("mcp/transport")) {
-			es->set_setting("mcp/transport", 0);
+		if (!es->has_setting("network/mcp/transport")) {
+			es->set_setting("network/mcp/transport", 0);
 		}
-		if (!es->has_setting("mcp/bind_mode")) {
-			es->set_setting("mcp/bind_mode", 0);
+		if (!es->has_setting("network/mcp/bind_mode")) {
+			es->set_setting("network/mcp/bind_mode", 0);
 		}
 	}
 }
@@ -539,7 +552,7 @@ void McpServer::_tick() {
 		}
 		EditorNode *en = EditorNode::get_singleton();
 		if (en && !EditorInterface::get_singleton()->is_playing_scene()) {
-			if (EditorSettings::get_singleton()->get_setting("mcp/auto_reload_external")) {
+			if (EditorSettings::get_singleton()->get_setting("network/mcp/auto_reload_external")) {
 				en->refresh_external_changes();
 			} else {
 				en->poll_external_changes();
