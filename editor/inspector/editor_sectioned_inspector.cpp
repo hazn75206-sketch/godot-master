@@ -293,6 +293,14 @@ void SectionedInspector::update_category_list() {
 				ms->set_tooltip_text(0, tooltip);
 				ms->set_metadata(0, metasection);
 				ms->set_selectable(0, false);
+				if (metasection == "network/mcp" || text == "Mcp") {
+					// Icon MCP (modul godot_mcp/icons/Mcp.svg); fallback emoji bila tema belum punya.
+					if (has_theme_icon(SNAME("Mcp"), SNAME("Editor"))) {
+						ms->set_icon(0, get_theme_icon(SNAME("Mcp"), SNAME("Editor")));
+					} else {
+						ms->set_text(0, String::utf8("\U0001F5BC ") + text);
+					}
+				}
 			}
 
 			if (i == sc - 1) {
