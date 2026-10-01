@@ -1466,7 +1466,14 @@ static Variant _tool_duplicate_node(const Dictionary &p_args) {
 	}
 	Node *dup = src->duplicate();
 	String want = String(p_args.get("name", String()));
-	dup->set_name(parent->validate_child_name(want.is_empty() ? String(src->get_name()) + "_copy" : want));
+	String base = want.is_empty() ? String(src->get_name()) + "_copy" : want;
+	String uname = base;
+	int suffix = 1;
+	while (parent->has_node(uname)) {
+		suffix++;
+		uname = base + "_" + itos(suffix);
+	}
+	dup->set_name(uname);
 	EditorUndoRedoManager *ur = ei->get_editor_undo_redo();
 	ur->create_action(vformat("MCP: menduplikat node %s", src->get_name()));
 	ur->add_do_method(parent, "add_child", dup, true);
@@ -1492,15 +1499,15 @@ static Variant _tool_execute_script(const Dictionary &p_args) {
 	if (scr->reload() != OK) {
 		return mcp_tool_ret_error("Script gagal dikompilasi. Periksa sintaks (indentasi otomatis 1 tab).");
 	}
-	Callable::CallError ce;
-	Variant inst = scr->new_(nullptr, 0, ce);
-	if (ce.error != Callable::CallError::CALL_OK) {
+	Object *raw = scr->instantiate();
+	Ref<RefCounted> inst(Object::cast_to<RefCounted>(raw));
+	if (!inst.is_valid()) {
+		if (raw) {
+			memdelete(raw);
+		}
 		return mcp_tool_ret_error("Script gagal diinstansiasi.");
 	}
-	Variant ret = inst.call(StringName("__mcp_run__"), nullptr, 0, ce);
-	if (ce.error != Callable::CallError::CALL_OK) {
-		return mcp_tool_ret_error("Runtime error saat eksekusi script.");
-	}
+	Variant ret = Variant(inst.ptr()).call(StringName("__mcp_run__"));
 	String out = ret.get_type() == Variant::STRING ? String(ret) : JSON::stringify(ret);
 	if (out.length() > 4000) {
 		out = out.substr(0, 4000) + "\n...(dipotong)";
