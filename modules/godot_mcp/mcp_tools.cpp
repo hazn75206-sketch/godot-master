@@ -1499,14 +1499,11 @@ static Variant _tool_execute_script(const Dictionary &p_args) {
 	if (scr->reload() != OK) {
 		return mcp_tool_ret_error("Script gagal dikompilasi. Periksa sintaks (indentasi otomatis 1 tab).");
 	}
-	Object *raw = scr->instantiate();
-	Ref<RefCounted> inst(Object::cast_to<RefCounted>(raw));
+	Ref<RefCounted> inst(Object::cast_to<RefCounted>(ClassDB::instantiate("RefCounted")));
 	if (!inst.is_valid()) {
-		if (raw) {
-			memdelete(raw);
-		}
 		return mcp_tool_ret_error("Script gagal diinstansiasi.");
 	}
+	scr->instance_create(inst.ptr());
 	Variant ret = Variant(inst.ptr()).call(StringName("__mcp_run__"));
 	String out = ret.get_type() == Variant::STRING ? String(ret) : JSON::stringify(ret);
 	if (out.length() > 4000) {
