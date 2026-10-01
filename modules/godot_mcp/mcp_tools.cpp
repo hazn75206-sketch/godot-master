@@ -28,6 +28,8 @@
 #include "scene/main/window.h"
 #include "core/input/input_event.h"
 #include "core/object/class_db.h"
+#include "core/io/resource_uid.h"
+#include "modules/gdscript/gdscript.h"
 
 #include <mutex>
 #include <vector>
@@ -235,11 +237,9 @@ static void _walk_scene(Node *p_node, Node *p_root, Dictionary &r_out) {
 	r_out["name"] = p_node->get_name();
 	r_out["type"] = p_node->get_class();
 	r_out["path"] = p_root->get_path_to(p_node);
-	if (p_node->get_script_instance()) {
-		Ref<Script> scr = p_node->get_script();
-		if (scr.is_valid()) {
-			r_out["script"] = scr->get_path();
-		}
+	Ref<Script> scr = p_node->get_script();
+	if (scr.is_valid()) {
+		r_out["script"] = scr->get_path();
 	}
 	Dictionary props;
 	if (p_node->has_method("get")) {
@@ -654,6 +654,34 @@ static Variant _tool_get_node_property(const Dictionary &p_args) {
 	if (prop.is_empty()) {
 		return mcp_tool_ret_error("Argumen 'property' wajib diisi.");
 	}
+	int colon = prop.find(":");
+	if (colon != -1) {
+		// Sub-name syntax: "environment:glow_enabled" -> get sub-resource lalu baca sub-property.
+		String base = prop.substr(0, colon);
+		String sub = prop.substr(colon + 1);
+		String concrete;
+		if (!_resolve_property(node, base, concrete)) {
+			return mcp_tool_ret_error(vformat("Property tidak ditemukan: %s", base));
+		}
+		bool ok = false;
+		Variant bv = node->get(concrete, &ok);
+		if (!ok) {
+			return mcp_tool_ret_error(vformat("Property tidak dapat dibaca: %s", concrete));
+		}
+		Object *obj = bv;
+		if (!obj) {
+			return mcp_tool_ret_error(vformat("Property bukan Object: %s", concrete));
+		}
+		Variant v = obj->get(sub, &ok);
+		if (!ok) {
+			return mcp_tool_ret_error(vformat("Sub-property tidak dapat dibaca: %s", prop));
+		}
+		Dictionary out;
+		out["path"] = p_args.get("path", String());
+		out["property"] = prop;
+		out["value"] = v;
+		return mcp_tool_ret_json(out);
+	}
 	String concrete;
 	if (!_resolve_property(node, prop, concrete)) {
 		return mcp_tool_ret_error(vformat("Property tidak ditemukan: %s", prop));
@@ -680,8 +708,28 @@ static Variant _tool_set_node_property(const Dictionary &p_args) {
 	if (prop.is_empty()) {
 		return mcp_tool_ret_error("Argumen 'property' wajib diisi.");
 	}
+	Object *target = node;
 	String concrete;
-	if (!_resolve_property(node, prop, concrete)) {
+	int colon = prop.find(":");
+	if (colon != -1) {
+		// Sub-name syntax: "environment:glow_enabled" -> set pada sub-resource (undoable).
+		String base = prop.substr(0, colon);
+		String sub = prop.substr(colon + 1);
+		String base_concrete;
+		if (!_resolve_property(node, base, base_concrete)) {
+			return mcp_tool_ret_error(vformat("Property tidak ditemukan: %s", base));
+		}
+		bool ok0 = false;
+		Variant bv = node->get(base_concrete, &ok0);
+		if (!ok0) {
+			return mcp_tool_ret_error(vformat("Property tidak dapat dibaca: %s", base_concrete));
+		}
+		target = bv;
+		if (!target) {
+			return mcp_tool_ret_error(vformat("Property bukan Object: %s", base_concrete));
+		}
+		concrete = sub;
+	} else if (!_resolve_property(node, prop, concrete)) {
 		return mcp_tool_ret_error(vformat("Property tidak ditemukan: %s", prop));
 	}
 	Variant value = p_args.get("value", Variant());
@@ -785,12 +833,12 @@ static Variant _tool_set_node_property(const Dictionary &p_args) {
 
 	// Capture old value for undo.
 	bool ok = false;
-	Variant old = node->get(concrete, &ok);
+	Variant old = target->get(concrete, &ok);
 
 	EditorUndoRedoManager *ur = ei->get_editor_undo_redo();
 	ur->create_action(vformat("MCP: menetapkan %s.%s", p_args.get("path", String()), concrete));
-	ur->add_do_method(node, "set", concrete, value);
-	ur->add_undo_method(node, "set", concrete, old);
+	ur->add_do_method(target, "set", concrete, value);
+	ur->add_undo_method(target, "set", concrete, old);
 	ur->commit_action();
 	return mcp_tool_ret_text(vformat("Menetapkan %s.%s", p_args.get("path", String()), concrete));
 }
@@ -1402,6 +1450,282 @@ static Variant _tool_refresh(const Dictionary &p_args) {
 	return Dictionary{ { "ok", true }, { "message", "Proyek disegarkan: pemindaian filesystem dijadwalkan; scene dan pengaturan proyek dimuat ulang dari disk." } };
 }
 
+static Variant _tool_duplicate_node(const Dictionary &p_args) {
+	EditorInterface *ei = EditorInterface::get_singleton();
+	Node *root = _scene_root();
+	if (!ei || !root) {
+		return mcp_tool_ret_error("Tidak ada scene yang terbuka.");
+	}
+	Node *src = _resolve_node(p_args.get("path", String()));
+	if (!src || src == root) {
+		return mcp_tool_ret_error(vformat("Node tidak ditemukan: %s", p_args.get("path", String())));
+	}
+	Node *parent = src->get_parent();
+	if (!parent) {
+		return mcp_tool_ret_error("Node tidak punya parent.");
+	}
+	Node *dup = src->duplicate();
+	String want = String(p_args.get("name", String()));
+	dup->set_name(parent->validate_child_name(want.is_empty() ? String(src->get_name()) + "_copy" : want));
+	EditorUndoRedoManager *ur = ei->get_editor_undo_redo();
+	ur->create_action(vformat("MCP: menduplikat node %s", src->get_name()));
+	ur->add_do_method(parent, "add_child", dup, true);
+	ur->add_do_method(dup, "set_owner", root);
+	ur->add_undo_method(dup, "set_owner", (Object *)nullptr);
+	ur->add_undo_method(parent, "remove_child", dup);
+	ur->commit_action();
+	return mcp_tool_ret_text(vformat("Duplikat %s -> %s", _scene_rel_path(src), _scene_rel_path(dup)));
+}
+
+static Variant _tool_execute_script(const Dictionary &p_args) {
+	String code = p_args.get("code", String());
+	if (code.strip_edges().is_empty()) {
+		return mcp_tool_ret_error("Argumen 'code' wajib diisi (badan fungsi GDScript; EditorInterface/Engine/ProjectSettings tersedia).");
+	}
+	String src = "extends RefCounted\nfunc __mcp_run__():\n";
+	for (const String &line : code.split("\n")) {
+		src += line.strip_edges().is_empty() ? "\n" : "\t" + line + "\n";
+	}
+	Ref<GDScript> scr;
+	scr.instantiate();
+	scr->set_source_code(src);
+	if (scr->reload() != OK) {
+		return mcp_tool_ret_error("Script gagal dikompilasi. Periksa sintaks (indentasi otomatis 1 tab).");
+	}
+	Callable::CallError ce;
+	Variant inst = scr->new_(nullptr, 0, ce);
+	if (ce.error != Callable::CallError::CALL_OK) {
+		return mcp_tool_ret_error("Script gagal diinstansiasi.");
+	}
+	Variant ret = inst.call(StringName("__mcp_run__"), nullptr, 0, ce);
+	if (ce.error != Callable::CallError::CALL_OK) {
+		return mcp_tool_ret_error("Runtime error saat eksekusi script.");
+	}
+	String out = ret.get_type() == Variant::STRING ? String(ret) : JSON::stringify(ret);
+	if (out.length() > 4000) {
+		out = out.substr(0, 4000) + "\n...(dipotong)";
+	}
+	return mcp_tool_ret_text(out.is_empty() ? "(tidak ada return)" : out);
+}
+
+static void _glob_walk(const String &p_dir, const String &p_pattern, Array &r_out, int p_limit) {
+	if ((int)r_out.size() >= p_limit) {
+		return;
+	}
+	Ref<DirAccess> da = DirAccess::open(p_dir);
+	if (!da.is_valid()) {
+		return;
+	}
+	da->list_dir_begin();
+	String f = da->get_next();
+	while (!f.is_empty()) {
+		if (f != "." && f != "..") {
+			String full = p_dir.path_join(f);
+			if (da->current_is_dir()) {
+				if (f != ".godot" && f != ".git") {
+					_glob_walk(full, p_pattern, r_out, p_limit);
+				}
+			} else if (f.match(p_pattern) || full.match(p_pattern)) {
+				r_out.append(full);
+			}
+		}
+		f = da->get_next();
+	}
+	da->list_dir_end();
+}
+
+static Variant _tool_glob(const Dictionary &p_args) {
+	String pattern = p_args.get("pattern", String());
+	if (pattern.is_empty()) {
+		return mcp_tool_ret_error("Argumen 'pattern' wajib diisi (mis. *.gd, **/*.tscn).");
+	}
+	String base = String(p_args.get("path", String("res://")));
+	Array out;
+	_glob_walk(base, pattern, out, 500);
+	Dictionary d;
+	d["pattern"] = pattern;
+	d["count"] = out.size();
+	d["files"] = out;
+	return mcp_tool_ret_json(d);
+}
+
+static void _grep_walk(const String &p_dir, const String &p_pattern, const Vector<String> &p_exts, Array &r_out, int p_max, int &r_scanned) {
+	if ((int)r_out.size() >= p_max) {
+		return;
+	}
+	Ref<DirAccess> da = DirAccess::open(p_dir);
+	if (!da.is_valid()) {
+		return;
+	}
+	da->list_dir_begin();
+	String f = da->get_next();
+	while (!f.is_empty() && (int)r_out.size() < p_max) {
+		if (f != "." && f != "..") {
+			String full = p_dir.path_join(f);
+			if (da->current_is_dir()) {
+				if (f != ".godot" && f != ".git") {
+					_grep_walk(full, p_pattern, p_exts, r_out, p_max, r_scanned);
+				}
+			} else {
+				bool ext_ok = p_exts.is_empty();
+				for (const String &e : p_exts) {
+					if (f.ends_with(e)) {
+						ext_ok = true;
+						break;
+					}
+				}
+				if (ext_ok && FileAccess::exists(full)) {
+					r_scanned++;
+					Error err = OK;
+					String text = FileAccess::get_file_as_string(full, &err);
+					if (err == OK && text.length() < 500000) {
+						int ln = 0;
+						for (const String &line : text.split("\n")) {
+							ln++;
+							if (line.contains(p_pattern)) {
+								String shown = line.strip_edges();
+								if (shown.length() > 300) {
+									shown = shown.substr(0, 300) + "...";
+								}
+								r_out.append(vformat("%s:%d: %s", full, ln, shown));
+								if ((int)r_out.size() >= p_max) {
+									break;
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		f = da->get_next();
+	}
+	da->list_dir_end();
+}
+
+static Variant _tool_grep_code(const Dictionary &p_args) {
+	String pattern = p_args.get("pattern", String());
+	if (pattern.is_empty()) {
+		return mcp_tool_ret_error("Argumen 'pattern' wajib diisi.");
+	}
+	String base = String(p_args.get("path", String("res://")));
+	Vector<String> exts;
+	for (const String &e : String(p_args.get("ext", String(".gd,.tscn,.cfg,.godot,.json,.md,.gdshader"))).split(",")) {
+		if (!e.strip_edges().is_empty()) {
+			exts.append(e.strip_edges());
+		}
+	}
+	int mx = int(p_args.get("max", 50));
+	if (mx < 1) {
+		mx = 50;
+	}
+	if (mx > 200) {
+		mx = 200;
+	}
+	Array out;
+	int scanned = 0;
+	_grep_walk(base, pattern, exts, out, mx, scanned);
+	Dictionary d;
+	d["pattern"] = pattern;
+	d["files_scanned"] = scanned;
+	d["count"] = out.size();
+	d["matches"] = out;
+	return mcp_tool_ret_json(d);
+}
+
+static Variant _tool_path_to_uid(const Dictionary &p_args) {
+	String path = p_args.get("path", String());
+	if (path.is_empty()) {
+		return mcp_tool_ret_error("Argumen 'path' wajib diisi (mis. res://icon.svg).");
+	}
+	ResourceUID::ID id = ResourceUID::get_singleton()->text_to_id(path);
+	if (id == ResourceUID::INVALID_ID) {
+		return mcp_tool_ret_text(vformat("%s -> (belum terdaftar di UID cache)", path));
+	}
+	return mcp_tool_ret_text(vformat("%s -> %s", path, ResourceUID::get_singleton()->id_to_text(id)));
+}
+
+static Variant _tool_uid_to_path(const Dictionary &p_args) {
+	String uid = String(p_args.get("uid", String())).strip_edges();
+	if (uid.is_empty()) {
+		return mcp_tool_ret_error("Argumen 'uid' wajib diisi (mis. uid://abc123).");
+	}
+	ResourceUID::ID id = ResourceUID::get_singleton()->text_to_id(uid);
+	if (id == ResourceUID::INVALID_ID || !ResourceUID::get_singleton()->has_id(id)) {
+		return mcp_tool_ret_error(vformat("UID tidak dikenal: %s", uid));
+	}
+	return mcp_tool_ret_text(vformat("%s terdaftar di UID cache.", ResourceUID::get_singleton()->id_to_text(id)));
+}
+
+static Variant _tool_class_ref(const Dictionary &p_args) {
+	String cls = p_args.get("class_name", String());
+	if (cls.is_empty()) {
+		return mcp_tool_ret_error("Argumen 'class_name' wajib diisi (mis. Node2D, CharacterBody3D).");
+	}
+	if (!ClassDB::class_exists(cls)) {
+		return mcp_tool_ret_error(vformat("Class tidak ditemukan: %s", cls));
+	}
+	String member = String(p_args.get("member", String("all"))).to_lower();
+	String out = "Class " + cls + " < " + ClassDB::get_parent_class(cls) + "\n";
+	if (member == "all" || member == "methods") {
+		List<MethodInfo> methods;
+		ClassDB::get_method_list(cls, &methods);
+		out += vformat("--- Methods (%d, maks 150) ---\n", methods.size());
+		int n = 0;
+		for (const MethodInfo &mi : methods) {
+			if (n++ >= 150) {
+				out += "...(dipotong)\n";
+				break;
+			}
+			String args;
+			for (int i = 0; i < mi.arguments.size(); i++) {
+				if (i > 0) {
+					args += ", ";
+				}
+				args += String(mi.arguments[i].name) + ": " + Variant::get_type_name(mi.arguments[i].type);
+			}
+			out += "func " + String(mi.name) + "(" + args + ")\n";
+		}
+	}
+	if (member == "all" || member == "properties") {
+		List<PropertyInfo> props;
+		ClassDB::get_property_list(cls, &props);
+		out += vformat("--- Properties (%d, maks 150) ---\n", props.size());
+		int n = 0;
+		for (const PropertyInfo &pi : props) {
+			if (n++ >= 150) {
+				out += "...(dipotong)\n";
+				break;
+			}
+			out += String(pi.name) + ": " + Variant::get_type_name(pi.type) + "\n";
+		}
+	}
+	if (member == "all" || member == "signals") {
+		List<MethodInfo> sigs;
+		ClassDB::get_signal_list(cls, &sigs);
+		out += vformat("--- Signals (%d) ---\n", sigs.size());
+		for (const MethodInfo &mi : sigs) {
+			out += "signal " + String(mi.name) + "\n";
+		}
+	}
+	if (member == "all" || member == "constants") {
+		List<String> consts;
+		ClassDB::get_integer_constant_list(cls, &consts);
+		out += vformat("--- Constants (%d, maks 100) ---\n", consts.size());
+		int n = 0;
+		for (const String &c : consts) {
+			if (n++ >= 100) {
+				out += "...(dipotong)\n";
+				break;
+			}
+			out += c + "\n";
+		}
+	}
+	if (out.length() > 12000) {
+		out = out.substr(0, 12000) + "\n...(dipotong)";
+	}
+	return mcp_tool_ret_text(out);
+}
+
 static Dictionary _schema(bool p_required, const Vector<String> &p_props) {
 	Dictionary props;
 	for (const String &p : p_props) {
@@ -1505,6 +1829,13 @@ void mcp_register_tools(McpServer *p_server) {
 	p_server->register_tool("logs_read", "Baca baris log error/peringatan/MCP editor terbaru. Args: level (all|error|warning|info), limit (int).", _schema_any(Vector<String>{ "level", "limit" }), _tool_logs_read);
 	p_server->register_tool("debugger_errors", "Baca error/peringatan yang sedang tampil di panel Debugger editor (dari game yang sedang berjalan).", _schema_any(Vector<String>()), _tool_debugger_errors);
 	p_server->register_tool("refresh", "Pindai ulang filesystem proyek dan muat ulang scene/pengaturan proyek yang berubah di disk, tanpa memulai ulang editor.", _schema_any(Vector<String>()), _tool_refresh);
+	p_server->register_tool("duplicate_node", "Duplikat node + subtree-nya sebagai sibling (undoable). Args: path, name (opsional).", _schema(true, Vector<String>{ "path" }), _tool_duplicate_node);
+	p_server->register_tool("execute_script", "Jalankan snippet GDScript di editor (EditorInterface/Engine/ProjectSettings tersedia, indentasi otomatis). Args: code. AWAS: infinite loop menggantung editor.", _schema(true, Vector<String>{ "code" }), _tool_execute_script);
+	p_server->register_tool("glob", "Cari file se-project dengan pola (mis. *.gd, **/*.tscn; lewati .godot/.git). Args: pattern, path (default res://).", _schema(true, Vector<String>{ "pattern" }), _tool_glob);
+	p_server->register_tool("grep_code", "Cari teks di file project (substring, per baris). Args: pattern, path (default res://), ext, max (default 50).", _schema(true, Vector<String>{ "pattern" }), _tool_grep_code);
+	p_server->register_tool("path_to_uid", "Path res:// -> UID cache. Args: path.", _schema(true, Vector<String>{ "path" }), _tool_path_to_uid);
+	p_server->register_tool("uid_to_path", "Cek UID terdaftar di UID cache. Args: uid.", _schema(true, Vector<String>{ "uid" }), _tool_uid_to_path);
+	p_server->register_tool("class_ref", "Introspeksi ClassDB: method/properti/sinyal/konstanta sebuah class. Args: class_name, member (methods|properties|signals|constants|all).", _schema(true, Vector<String>{ "class_name" }), _tool_class_ref);
 }
 
 #endif // TOOLS_ENABLED
