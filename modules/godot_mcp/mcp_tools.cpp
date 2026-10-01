@@ -1083,11 +1083,6 @@ static Variant _tool_editor_state(const Dictionary &p_args) {
 	st["port"] = s ? s->get_port() : -1;
 	st["enabled"] = s ? s->get_enabled() : false;
 	st["godot_version"] = Engine::get_singleton()->get_version_info().get("string", String());
-	Dictionary ag;
-	EditorSettings *esag = EditorSettings::get_singleton();
-	ag["model"] = (esag && esag->has_setting("agent/model")) ? String(esag->get_setting("agent/model")) : String("deepseek-v4-flash");
-	ag["has_key"] = esag && esag->has_setting("agent/api_key") && !String(esag->get_setting("agent/api_key")).strip_edges().is_empty();
-	st["agent"] = ag;
 	return mcp_tool_ret_json(st);
 }
 
