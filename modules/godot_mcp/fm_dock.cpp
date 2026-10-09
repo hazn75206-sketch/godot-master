@@ -15,7 +15,7 @@
 #include "editor/file_system/editor_file_system.h"
 #include "editor/gui/editor_toaster.h"
 #include "editor/gui/progress_dialog.h"
-#include "scene/gui/accept_dialog.h"
+#include "scene/gui/dialogs.h"
 #include "scene/gui/label.h"
 #include "scene/gui/option_button.h"
 #include "scene/gui/scroll_container.h"

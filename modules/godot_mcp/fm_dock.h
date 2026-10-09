@@ -4,9 +4,9 @@
 #ifdef TOOLS_ENABLED
 
 #include "editor/plugins/editor_plugin.h"
-#include "scene/gui/accept_dialog.h"
 #include "scene/gui/box_container.h"
 #include "scene/gui/button.h"
+#include "scene/gui/dialogs.h"
 #include "scene/gui/item_list.h"
 #include "scene/gui/line_edit.h"
 #include "scene/gui/option_button.h"
