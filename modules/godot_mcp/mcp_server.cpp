@@ -81,7 +81,7 @@ int McpServer::get_port() const {
 	return int(es->get_setting("network/mcp/port"));
 }
 
-int McpServer::get_log_level() const {
+int McpServer::read_log_level_setting() const {
 	EditorSettings *es = EditorSettings::get_singleton();
 	if (!es) {
 		return 2;
@@ -210,7 +210,7 @@ void McpServer::start_server() {
 	cfg_port = get_port();
 	cfg_bind_mode = get_bind_mode();
 	cfg_transport = get_transport();
-	cfg_log_level = get_log_level();
+	cfg_log_level = read_log_level_setting();
 #ifdef TOOLS_ENABLED
 	_register_builtin_tools();
 #endif
@@ -607,7 +607,7 @@ void McpServer::_tick() {
 		return;
 	}
 	// Level log dibaca live tanpa restart server.
-	cfg_log_level = get_log_level();
+	cfg_log_level = read_log_level_setting();
 	{
 		int p = get_port();
 		int b = get_bind_mode();

@@ -86,7 +86,7 @@ void MCPHttpServer::_accept_loop() {
 			if (peer.is_valid()) {
 			Connection *conn = memnew(Connection);
 			conn->peer = peer;
-			conn->peer_ip = peer->get_connected_host();
+			conn->peer_ip = String(peer->get_connected_host());
 				conn->last_activity = Time::get_singleton()->get_ticks_msec();
 				conn->last_heartbeat = conn->last_activity;
 				std::thread *t = new std::thread([this, conn] { _connection_loop(conn); });

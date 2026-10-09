@@ -57,6 +57,7 @@ public:
 	int get_transport() const;
 	int get_bind_mode() const;
 	int get_log_level() const { return cfg_log_level; }
+	int read_log_level_setting() const;
 	String get_local_ip() const;
 	void apply_config();
 	void set_enabled(bool p_enabled);
