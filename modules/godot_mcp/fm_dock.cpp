@@ -20,7 +20,7 @@
 #include "scene/gui/option_button.h"
 #include "scene/gui/scroll_container.h"
 #include "scene/gui/texture_rect.h"
-#include "scene/gui/window.h"
+#include "scene/main/window.h"
 #include "servers/display_server.h"
 
 // ---------------------------------------------------------------- McpFileList
