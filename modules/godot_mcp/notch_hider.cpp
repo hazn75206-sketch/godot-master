@@ -1,6 +1,8 @@
 #include "notch_hider.h"
 
+#include "core/error/error_macros.h"
 #include "core/object/property_info.h"
+#include "core/string/ustring.h"
 #include "editor/settings/editor_settings.h"
 
 #ifdef ANDROID_ENABLED
@@ -9,9 +11,21 @@
 #include "platform/android/os_android.h"
 #endif
 
-// Cache last applied value so the 2-second poll only touches JNI on change.
-static bool notch_last_applied = false;
-static bool notch_has_applied = false;
+// Peringatan kegagalan JNI: sekali per sebab sampai sukses lagi,
+// agar tidak spam tiap poll tapi tetap terlihat di logcat.
+static String notch_last_warn;
+
+static void notch_warn_once(const String &p_why) {
+	if (notch_last_warn == p_why) {
+		return;
+	}
+	notch_last_warn = p_why;
+	WARN_PRINT(vformat("NotchHider: %s (cutout tidak diterapkan)", p_why));
+}
+
+static void notch_warn_reset() {
+	notch_last_warn = String();
+}
 
 void notch_hider_register_settings() {
 	EditorSettings *es = EditorSettings::get_singleton();
@@ -26,38 +40,45 @@ void notch_hider_register_settings() {
 
 void notch_hider_apply() {
 #ifdef ANDROID_ENABLED
+	// Tanpa cache sekali-pakai: window attrs bisa di-reset Godot/activity
+	// kapan saja (resume, rotasi, edge-to-edge), jadi terapkan tiap poll.
 	EditorSettings *es = EditorSettings::get_singleton();
 	bool hidden = true;
 	if (es && es->has_setting("android/hide_display_cutout")) {
 		hidden = bool(es->get_setting("android/hide_display_cutout"));
 	}
-	if (notch_has_applied && hidden == notch_last_applied) {
-		return;
-	}
 	JNIEnv *env = get_jni_env();
 	if (!env) {
+		notch_warn_once("get_jni_env null");
 		return;
 	}
 	jclass cls = jni_find_class(env, "org/godotengine/godot/notch/NotchHider");
 	if (!cls) {
+		notch_warn_once("kelas NotchHider tidak ketemu");
 		return;
 	}
 	jmethodID set_hidden = env->GetStaticMethodID(cls, "setHidden", "(Landroid/content/Context;Z)V");
-	if (set_hidden) {
-		OS_Android *os = OS_Android::get_singleton();
-		jobject activity = (os && os->get_godot_java()) ? os->get_godot_java()->get_activity() : nullptr;
-		if (activity) {
-			env->CallStaticVoidMethod(cls, set_hidden, activity, (jboolean)hidden);
-			notch_last_applied = hidden;
-			notch_has_applied = true;
-		}
+	if (!set_hidden) {
+		notch_warn_once("method setHidden tidak ketemu");
+		env->DeleteLocalRef(cls);
+		return;
 	}
+	OS_Android *os = OS_Android::get_singleton();
+	jobject activity = (os && os->get_godot_java()) ? os->get_godot_java()->get_activity() : nullptr;
+	if (!activity) {
+		notch_warn_once("activity null");
+		env->DeleteLocalRef(cls);
+		return;
+	}
+	env->CallStaticVoidMethod(cls, set_hidden, activity, (jboolean)hidden);
 	if (env->ExceptionCheck()) {
 		env->ExceptionClear();
+		notch_warn_once("exception saat setHidden");
+	} else {
+		notch_warn_reset();
 	}
 	env->DeleteLocalRef(cls);
 #else
-	(void)notch_last_applied;
-	(void)notch_has_applied;
+	(void)0;
 #endif // ANDROID_ENABLED
 }

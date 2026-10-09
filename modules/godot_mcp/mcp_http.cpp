@@ -23,6 +23,7 @@ struct MCPHttpServer::Connection {
 	bool is_sse = false;
 	bool streaming = false;
 	String session_id;
+	String peer_ip;
 	bool session_created = false;
 	uint64_t last_activity = 0;
 	uint64_t last_heartbeat = 0;
@@ -83,8 +84,9 @@ void MCPHttpServer::_accept_loop() {
 		if (server.is_valid() && server->is_connection_available()) {
 			Ref<StreamPeerTCP> peer = server->take_connection();
 			if (peer.is_valid()) {
-				Connection *conn = memnew(Connection);
-				conn->peer = peer;
+			Connection *conn = memnew(Connection);
+			conn->peer = peer;
+			conn->peer_ip = peer->get_connected_host();
 				conn->last_activity = Time::get_singleton()->get_ticks_msec();
 				conn->last_heartbeat = conn->last_activity;
 				std::thread *t = new std::thread([this, conn] { _connection_loop(conn); });
@@ -301,13 +303,16 @@ void MCPHttpServer::_handle_http(Connection *p_conn) {
 					}
 				}
 			}
-			{
-				std::lock_guard<std::mutex> lk(owner->sessions_mu);
-				auto it = owner->sessions.find(sid);
-				if (it != owner->sessions.end()) {
-					it->second.sse_conn = (void *)p_conn;
-				}
+		{
+			std::lock_guard<std::mutex> lk(owner->sessions_mu);
+			auto it = owner->sessions.find(sid);
+			if (it != owner->sessions.end()) {
+				it->second.sse_conn = (void *)p_conn;
 			}
+		}
+		if (!sid.is_empty()) {
+			p_conn->session_id = sid;
+		}
 			String proto_hdr;
 			if (!owner->protocol_version.is_empty()) {
 				proto_hdr = "MCP-Protocol-Version: " + owner->protocol_version + "\r\n";
@@ -325,13 +330,17 @@ void MCPHttpServer::_handle_http(Connection *p_conn) {
 			if (sid.is_empty()) {
 				// New connection — tell the client the POST endpoint.
 				_write_sse(p_conn, "event: endpoint\ndata: " + owner->get_mcp_url() + "\n\n");
-				print_line(vformat("Godot MCP: SSE stream dibuka (GET %s, belum ada session)", p_conn->path));
-				mcp_log_append(vformat("Godot MCP: SSE stream dibuka (GET %s, belum ada session)", p_conn->path));
+				if (owner->get_log_level() >= 2) {
+					print_line(vformat("Godot MCP: SSE stream dibuka (GET %s, belum ada session)", p_conn->path));
+					mcp_log_append(vformat("Godot MCP: SSE stream dibuka (GET %s, belum ada session)", p_conn->path));
+				}
 			} else {
 				// Existing session — signal the stream is ready.
 				_write_sse(p_conn, "event: open\n\n");
-				print_line(vformat("Godot MCP: SSE stream dibuka (GET %s, session %s)", p_conn->path, sid));
-				mcp_log_append(vformat("Godot MCP: SSE stream dibuka (GET %s, session %s)", p_conn->path, sid));
+				if (owner->get_log_level() >= 2) {
+					print_line(vformat("Godot MCP: SSE stream dibuka (GET %s, session %s)", p_conn->path, sid));
+					mcp_log_append(vformat("Godot MCP: SSE stream dibuka (GET %s, session %s)", p_conn->path, sid));
+				}
 			}
 			return;
 		}
@@ -375,11 +384,11 @@ void MCPHttpServer::_handle_http(Connection *p_conn) {
 	String created;
 	{
 		Variant method_v = ((const Dictionary &)json_variant).get("method", Variant());
-		if (method_v.get_type() == Variant::STRING) {
+		if (method_v.get_type() == Variant::STRING && owner->get_log_level() >= 2) {
 			print_line(vformat("Godot MCP: permintaan %s (session %s)", String(method_v), sid.is_empty() ? "-" : sid));
 		}
 	}
-	Dictionary response = owner->handle_jsonrpc(sid, json_variant, broadcast, created);
+	Dictionary response = owner->handle_jsonrpc(sid, json_variant, broadcast, created, p_conn->peer_ip);
 	if (!created.is_empty()) {
 		p_conn->session_id = created;
 	}
@@ -452,6 +461,7 @@ void mcp_http_send_frame(void *p_conn, const String &p_frame) {
 void MCPHttpServer::_close_conn(Connection *p_conn) {
 	// Drop any session references to this connection before freeing it, so the
 	// main thread never broadcasts to a freed connection (use-after-free).
+	String closed_sid;
 	{
 		std::lock_guard<std::mutex> lk(owner->sessions_mu);
 		for (auto &pair : owner->sessions) {
@@ -459,6 +469,17 @@ void MCPHttpServer::_close_conn(Connection *p_conn) {
 				pair.second.sse_conn = nullptr;
 			}
 		}
+	}
+	// Log hanya untuk stream SSE (kanal persisten per klien), bukan tiap POST
+	// keep-alive, agar tidak spam.
+	if (p_conn->is_sse && !p_conn->session_id.is_empty() && owner->get_log_level() >= 1) {
+		closed_sid = p_conn->session_id;
+	}
+	if (!closed_sid.is_empty()) {
+		Time *t = Time::get_singleton();
+		String stamp = t ? "[" + t->get_time_string_from_system() + "] " : String();
+		print_line(vformat("%sGodot MCP: klien terputus (session %s)", stamp, closed_sid));
+		mcp_log_append(vformat("%sGodot MCP: klien terputus (session %s)", stamp, closed_sid));
 	}
 	if (p_conn->peer.is_valid()) {
 		p_conn->peer->disconnect_from_host();

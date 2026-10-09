@@ -81,6 +81,26 @@ int McpServer::get_port() const {
 	return int(es->get_setting("network/mcp/port"));
 }
 
+int McpServer::get_log_level() const {
+	EditorSettings *es = EditorSettings::get_singleton();
+	if (!es) {
+		return 2;
+	}
+	if (!es->has_setting("network/mcp/log_level")) {
+		return 2;
+	}
+	return int(es->get_setting("network/mcp/log_level"));
+}
+
+// Prefix "[HH:MM:SS] " untuk baris log MCP (Fase 1D).
+static String _mcp_stamp() {
+	Time *t = Time::get_singleton();
+	if (!t) {
+		return String();
+	}
+	return "[" + t->get_time_string_from_system() + "] ";
+}
+
 String McpServer::get_bind() const {
 	EditorSettings *es = EditorSettings::get_singleton();
 	if (!es) {
@@ -190,6 +210,7 @@ void McpServer::start_server() {
 	cfg_port = get_port();
 	cfg_bind_mode = get_bind_mode();
 	cfg_transport = get_transport();
+	cfg_log_level = get_log_level();
 #ifdef TOOLS_ENABLED
 	_register_builtin_tools();
 #endif
@@ -208,8 +229,10 @@ void McpServer::start_server() {
 		st->connect(SNAME("process_frame"), callable_mp(this, &McpServer::_tick));
 		tick_connected = true;
 	}
-	print_line(vformat("Godot MCP: server berjalan di %s", get_mcp_url()));
-	mcp_log_append(vformat("Godot MCP: server berjalan di %s", get_mcp_url()));
+	if (cfg_log_level >= 1) {
+		print_line(vformat("%sGodot MCP: server berjalan di %s", _mcp_stamp(), get_mcp_url()));
+		mcp_log_append(vformat("%sGodot MCP: server berjalan di %s", _mcp_stamp(), get_mcp_url()));
+	}
 #ifdef ANDROID_ENABLED
 	mcp_android_notification_on();
 #endif
@@ -232,7 +255,9 @@ void McpServer::stop_server() {
 	mcp_android_notification_off();
 #endif
 	print_verbose("Godot MCP: server dihentikan");
-	mcp_log_append("Godot MCP: server dihentikan");
+	if (cfg_log_level >= 1) {
+		mcp_log_append(vformat("%sGodot MCP: server dihentikan", _mcp_stamp()));
+	}
 }
 
 void McpServer::register_editor_settings() {
@@ -242,7 +267,7 @@ void McpServer::register_editor_settings() {
 	}
 	// Sekali migrasi: pindahkan nilai lama mcp/* ke network/mcp/* (Editor Settings > Jaringan).
 	// Aman diulang: hanya menyalin bila kunci lama ada dan kunci baru belum ada.
-	const char *migrated_keys[] = { "enabled", "port", "transport", "bind_mode", "auto_reload_external" };
+	const char *migrated_keys[] = { "enabled", "port", "transport", "bind_mode", "auto_reload_external", "log_level" };
 	for (const char *k : migrated_keys) {
 		String oldk = String("mcp/") + k;
 		String newk = String("network/mcp/") + k;
@@ -268,6 +293,9 @@ void McpServer::register_editor_settings() {
 	if (!es->has_setting("network/mcp/auto_reload_external")) {
 		es->set_setting("network/mcp/auto_reload_external", false);
 	}
+	if (!es->has_setting("network/mcp/log_level")) {
+		es->set_setting("network/mcp/log_level", 2);
+	}
 	// Hide-notch toggle (Editor Settings: android/hide_display_cutout, default ON).
 	notch_hider_register_settings();
 	notch_hider_apply();
@@ -284,6 +312,7 @@ void McpServer::register_editor_settings() {
 	es->add_property_hint(PropertyInfo(Variant::INT, "network/mcp/bind_mode", PROPERTY_HINT_ENUM, "LAN (bisa diakses dari perangkat lain),Hanya Localhost"));
 	es->add_property_hint(PropertyInfo(Variant::INT, "network/mcp/port", PROPERTY_HINT_RANGE, "1,65535,1"));
 	es->add_property_hint(PropertyInfo(Variant::BOOL, "network/mcp/auto_reload_external", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_DEFAULT, "Muat ulang otomatis file yang berubah di luar editor (tanpa konfirmasi)"));
+	es->add_property_hint(PropertyInfo(Variant::INT, "network/mcp/log_level", PROPERTY_HINT_ENUM, "Diam,Hanya koneksi,Semua"));
 	// The MCP server never auto-starts on launch. Keep the poll connected so
 	// enabling/disabling the setting takes effect immediately without a restart.
 	McpServer *s = McpServer::get_singleton();
@@ -309,6 +338,9 @@ void McpServer::_update_from_settings() {
 		if (!es->has_setting("network/mcp/bind_mode")) {
 			es->set_setting("network/mcp/bind_mode", 0);
 		}
+		if (!es->has_setting("network/mcp/log_level")) {
+			es->set_setting("network/mcp/log_level", 2);
+		}
 	}
 }
 
@@ -318,7 +350,7 @@ String McpServer::_new_session_id() {
 	return id.to_lower();
 }
 
-Variant McpServer::_handle_request(const String &p_session_id, const Variant &p_message, bool &r_broadcast_session, String &r_created_session) {
+Variant McpServer::_handle_request(const String &p_session_id, const Variant &p_message, bool &r_broadcast_session, String &r_created_session, const String &p_peer_ip) {
 	r_broadcast_session = false;
 	if (p_message.get_type() != Variant::DICTIONARY) {
 		return Dictionary{ { "jsonrpc", "2.0" }, { "id", Variant() }, { "error", Dictionary{ { "code", -32600 }, { "message", "Invalid Request" } } } };
@@ -347,11 +379,15 @@ Variant McpServer::_handle_request(const String &p_session_id, const Variant &p_
 			Session s;
 			s.id = sid;
 			s.protocol_version = proto;
+			s.peer_ip = p_peer_ip;
 			sessions[sid] = s;
 		}
 		protocol_version = proto;
-		print_line(vformat("Godot MCP: klien '%s %s' terhubung (session %s, protocol %s)", client_name, client_version, sid, proto));
-		mcp_log_append(vformat("Godot MCP: klien '%s %s' terhubung (session %s, protocol %s)", client_name, client_version, sid, proto));
+		if (cfg_log_level >= 1) {
+			String from = p_peer_ip.is_empty() ? String() : vformat(" dari %s", p_peer_ip);
+			print_line(vformat("%sGodot MCP: klien '%s %s' terhubung (session %s, protocol %s%s)", _mcp_stamp(), client_name, client_version, sid, proto, from));
+			mcp_log_append(vformat("%sGodot MCP: klien '%s %s' terhubung (session %s, protocol %s%s)", _mcp_stamp(), client_name, client_version, sid, proto, from));
+		}
 		Dictionary caps;
 		caps["tools"] = Dictionary{ { "listChanged", true } };
 		caps["logging"] = Dictionary{};
@@ -422,8 +458,8 @@ Variant McpServer::_handle_request(const String &p_session_id, const Variant &p_
 	return Dictionary{ { "jsonrpc", "2.0" }, { "id", id }, { "error", Dictionary{ { "code", -32601 }, { "message", vformat("Method not found: %s", method) } } } };
 }
 
-Dictionary McpServer::handle_jsonrpc(const String &p_session_id, const Variant &p_message, bool &r_broadcast_session, String &r_created_session) {
-	Variant v = _handle_request(p_session_id, p_message, r_broadcast_session, r_created_session);
+Dictionary McpServer::handle_jsonrpc(const String &p_session_id, const Variant &p_message, bool &r_broadcast_session, String &r_created_session, const String &p_peer_ip) {
+	Variant v = _handle_request(p_session_id, p_message, r_broadcast_session, r_created_session, p_peer_ip);
 	if (v.get_type() == Variant::NIL) {
 		return Dictionary();
 	}
@@ -570,6 +606,8 @@ void McpServer::_tick() {
 		stop_server();
 		return;
 	}
+	// Level log dibaca live tanpa restart server.
+	cfg_log_level = get_log_level();
 	{
 		int p = get_port();
 		int b = get_bind_mode();

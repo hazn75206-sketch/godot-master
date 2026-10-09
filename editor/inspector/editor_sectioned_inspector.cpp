@@ -294,10 +294,10 @@ void SectionedInspector::update_category_list() {
 				ms->set_metadata(0, metasection);
 				ms->set_selectable(0, false);
 				if (metasection == "network/mcp" || text == "Mcp") {
-					// Icon MCP (modul godot_mcp/icons/Mcp.svg). Tanpa fallback:
-					// kalau icon tidak ada, baris tampil polos tanpa icon.
-					if (has_theme_icon(SNAME("Mcp"), SNAME("Editor"))) {
-						ms->set_icon(0, get_theme_icon(SNAME("Mcp"), SNAME("Editor")));
+					// Icon MCP (modul godot_mcp/icons/Mcp.svg), terdaftar di
+					// tipe theme "EditorIcons" seperti semua icon editor.
+					if (has_theme_icon(SNAME("Mcp"), SNAME("EditorIcons"))) {
+						ms->set_icon(0, get_theme_icon(SNAME("Mcp"), SNAME("EditorIcons")));
 					}
 				}
 			}

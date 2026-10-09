@@ -35,6 +35,7 @@ public:
 	struct Session {
 		String id;
 		String protocol_version;
+		String peer_ip;
 		void *sse_conn = nullptr;
 	};
 
@@ -55,12 +56,13 @@ public:
 	bool get_enabled() const;
 	int get_transport() const;
 	int get_bind_mode() const;
+	int get_log_level() const { return cfg_log_level; }
 	String get_local_ip() const;
 	void apply_config();
 	void set_enabled(bool p_enabled);
 	String get_mcp_url() const;
 
-	Dictionary handle_jsonrpc(const String &p_session_id, const Variant &p_message, bool &r_broadcast_session, String &r_created_session);
+	Dictionary handle_jsonrpc(const String &p_session_id, const Variant &p_message, bool &r_broadcast_session, String &r_created_session, const String &p_peer_ip = String());
 	void broadcast_notification(const String &p_method, const Dictionary &p_params);
 
 	Variant run_tool(Variant (*p_handler)(const Dictionary &p_args), const Dictionary &p_arguments, int p_timeout_ms = 20000);
@@ -75,7 +77,7 @@ private:
 	void _tick();
 	void _drain_tasks();
 	Dictionary _execute_tool(const String &p_name, const Dictionary &p_arguments);
-	Variant _handle_request(const String &p_session_id, const Variant &p_message, bool &r_broadcast_session, String &r_created_session);
+	Variant _handle_request(const String &p_session_id, const Variant &p_message, bool &r_broadcast_session, String &r_created_session, const String &p_peer_ip = String());
 	String _new_session_id();
 	void _register_builtin_tools();
 	void _emit_events();
@@ -116,6 +118,7 @@ private:
 	int cfg_port = 8766;
 	int cfg_bind_mode = 0;
 	int cfg_transport = 0;
+	int cfg_log_level = 2;
 };
 
 #endif // GODOT_MCP_SERVER_H
