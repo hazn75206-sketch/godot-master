@@ -4,11 +4,13 @@
 #ifdef TOOLS_ENABLED
 
 #include "editor/plugins/editor_plugin.h"
+#include "scene/gui/accept_dialog.h"
 #include "scene/gui/box_container.h"
 #include "scene/gui/button.h"
 #include "scene/gui/item_list.h"
 #include "scene/gui/line_edit.h"
 #include "scene/gui/option_button.h"
+#include "scene/gui/panel_container.h"
 
 // ItemList yang bisa di-seret keluar sebagai file (format drop standar
 // FileSystem dock + flag fm_copy agar selalu COPY, bukan MOVE).
