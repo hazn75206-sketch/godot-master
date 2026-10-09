@@ -101,8 +101,8 @@ class McpFileManagerPlugin : public EditorPlugin {
 	void _open_manager();
 
 protected:
-	void _enter_tree() override;
-	void _exit_tree() override;
+	void _enter_tree();
+	void _exit_tree();
 
 public:
 	McpFileManagerPlugin() {}

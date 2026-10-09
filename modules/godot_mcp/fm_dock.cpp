@@ -21,7 +21,7 @@
 #include "scene/gui/scroll_container.h"
 #include "scene/gui/texture_rect.h"
 #include "scene/main/window.h"
-#include "servers/display_server.h"
+#include "servers/display/display_server.h"
 
 // ---------------------------------------------------------------- McpFileList
 
