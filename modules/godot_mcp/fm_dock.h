@@ -11,6 +11,7 @@
 #include "scene/gui/line_edit.h"
 #include "scene/gui/option_button.h"
 #include "scene/gui/panel_container.h"
+#include "scene/gui/texture_rect.h"
 
 // ItemList yang bisa di-seret keluar sebagai file (format drop standar
 // FileSystem dock + flag fm_copy agar selalu COPY, bukan MOVE).
@@ -65,8 +66,8 @@ class McpFileManager : public PanelContainer {
 	void _do_import(const Vector<String> &p_src, const String &p_dst_dir);
 	void _show_info(const Vector<String> &p_src);
 	void _scan_if_inside_project(const String &p_path);
-	static Error _copy_recursive(const String &p_from, const String &p_to, int &r_count);
-	static Error _remove_recursive(const String &p_path);
+	Error _copy_recursive(const String &p_from, const String &p_to, int &r_count);
+	Error _remove_recursive(const String &p_path);
 
 	void _on_item_activated(int p_idx);
 	void _on_search_changed(const String &p_text);
@@ -83,9 +84,12 @@ class McpFileManager : public PanelContainer {
 	void _on_confirm();
 	void _on_input_confirm();
 	bool _compare(const Variant &p_a, const Variant &p_b, int p_mode);
+	void _apply_button_icons();
 
 protected:
 	static void _bind_methods();
+	void _enter_tree();
+	void _exit_tree();
 
 public:
 	void open_dir(const String &p_dir);

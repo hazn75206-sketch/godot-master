@@ -21,6 +21,8 @@
 #include "scene/gui/scroll_container.h"
 #include "scene/gui/texture_rect.h"
 #include "scene/main/window.h"
+#include "scene/gui/texture_rect.h"
+#include "scene/gui/image_texture.h"
 #include "servers/display/display_server.h"
 
 // ---------------------------------------------------------------- McpFileList
@@ -84,8 +86,10 @@ void McpFileManager::_build_ui() {
 	ScrollContainer *crumb_scroll = memnew(ScrollContainer);
 	crumb_scroll->set_vertical_scroll_mode(ScrollContainer::SCROLL_MODE_DISABLED);
 	crumb_scroll->set_h_scroll(true);
-	crumb_scroll->size_flags_horizontal = Control::SIZE_EXPAND_FILL;
+	crumb_scroll->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	nav->add_child(crumb_scroll);
+	crumb_bar = memnew(HBoxContainer);
+	crumb_scroll->add_child(crumb_bar);
 	crumb_bar = memnew(HBoxContainer);
 	crumb_scroll->add_child(crumb_bar);
 
@@ -93,6 +97,7 @@ void McpFileManager::_build_ui() {
 	search_box->set_placeholder("Cari...");
 	search_box->set_clear_button_enabled(true);
 	search_box->set_custom_minimum_size(Vector2(110, 0));
+	search_box->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	search_box->connect("text_changed", callable_mp(this, &McpFileManager::_on_search_changed));
 	nav->add_child(search_box);
 
@@ -110,7 +115,7 @@ void McpFileManager::_build_ui() {
 	list->set_select_mode(ItemList::SELECT_MULTI);
 	list->set_allow_rmb_select(true);
 	list->set_fixed_icon_size(Vector2i(20, 20));
-	list->size_flags_vertical = Control::SIZE_EXPAND_FILL;
+	list->set_v_size_flags(Control::SIZE_EXPAND_FILL);
 	list->connect("item_activated", callable_mp(this, &McpFileManager::_on_item_activated));
 	root->add_child(list);
 
@@ -128,15 +133,15 @@ void McpFileManager::_build_ui() {
 		btn->set_name(b[0]);
 		actions->add_child(btn);
 	}
-	actions->get_node("ActCopy")->connect("pressed", callable_mp(this, &McpFileManager::_on_copy));
-	actions->get_node("ActCut")->connect("pressed", callable_mp(this, &McpFileManager::_on_cut));
-	actions->get_node("ActPaste")->connect("pressed", callable_mp(this, &McpFileManager::_on_paste));
-	actions->get_node("ActRename")->connect("pressed", callable_mp(this, &McpFileManager::_on_rename));
-	actions->get_node("ActDelete")->connect("pressed", callable_mp(this, &McpFileManager::_on_delete));
-	actions->get_node("ActMkdir")->connect("pressed", callable_mp(this, &McpFileManager::_on_mkdir));
-	actions->get_node("ActExtract")->connect("pressed", callable_mp(this, &McpFileManager::_on_extract));
-	actions->get_node("ActImport")->connect("pressed", callable_mp(this, &McpFileManager::_on_import));
-	actions->get_node("ActInfo")->connect("pressed", callable_mp(this, &McpFileManager::_on_info));
+	actions->get_child(0)->connect("pressed", callable_mp(this, &McpFileManager::_on_copy));
+	actions->get_child(1)->connect("pressed", callable_mp(this, &McpFileManager::_on_cut));
+	actions->get_child(2)->connect("pressed", callable_mp(this, &McpFileManager::_on_paste));
+	actions->get_child(3)->connect("pressed", callable_mp(this, &McpFileManager::_on_rename));
+	actions->get_child(4)->connect("pressed", callable_mp(this, &McpFileManager::_on_delete));
+	actions->get_child(5)->connect("pressed", callable_mp(this, &McpFileManager::_on_mkdir));
+	actions->get_child(6)->connect("pressed", callable_mp(this, &McpFileManager::_on_extract));
+	actions->get_child(7)->connect("pressed", callable_mp(this, &McpFileManager::_on_import));
+	actions->get_child(8)->connect("pressed", callable_mp(this, &McpFileManager::_on_info));
 
 	status_label = memnew(Label);
 	status_label->set_clip_text(true);
@@ -148,7 +153,7 @@ void McpFileManager::_build_ui() {
 
 	input_dialog = memnew(AcceptDialog);
 	input_edit = memnew(LineEdit);
-	input_edit->size_flags_horizontal = Control::SIZE_EXPAND_FILL;
+	input_edit->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	input_dialog->add_child(input_edit);
 	input_dialog->connect("confirmed", callable_mp(this, &McpFileManager::_on_input_confirm));
 	add_child(input_dialog);
@@ -316,24 +321,36 @@ String McpFileManager::_icon_for(const String &p_name, bool p_dir) const {
 }
 
 void McpFileManager::_apply_button_icons() {
-	struct Pair {
-		const char *node;
-		const char *icon;
-	};
-	static const Pair pairs[] = {
-		{ "VBox/NavBack", "fm_back" }, { "VBox/NavHome", "fm_home" }, { "VBox/NavRefresh", "fm_refresh" },
-		{ "VBox/HBox/ActCopy", "fm_copy" }, { "VBox/HBox/ActCut", "fm_cut" }, { "VBox/HBox/ActPaste", "fm_paste" },
-		{ "VBox/HBox/ActRename", "fm_rename" }, { "VBox/HBox/ActDelete", "fm_delete" }, { "VBox/HBox/ActMkdir", "fm_newfolder" },
-		{ "VBox/HBox/ActExtract", "fm_extract" }, { "VBox/HBox/ActImport", "fm_import" }, { "VBox/HBox/ActInfo", "fm_info" },
-	};
-	// Node action bar: anak langsung VBox urutan ke-4 (setelah nav, shortcut, list).
-	Node *root = get_child(0);
-	for (const Pair &pr : pairs) {
-		Button *b = Object::cast_to<Button>(root->get_node_or_null(pr.node));
-		if (b) {
-			b->set_button_icon(get_theme_icon(pr.icon, "EditorIcons"));
-			b->expand_icon = false;
-		}
+	// Use the node names we set during creation
+	Node *nav = get_node_or_null("VBox/HBox");
+	if (nav) {
+		Button *b = Object::cast_to<Button>(nav->get_node_or_null("NavBack"));
+		if (b) b->set_button_icon(get_theme_icon("fm_back", "EditorIcons"));
+		b = Object::cast_to<Button>(nav->get_node_or_null("NavHome"));
+		if (b) b->set_button_icon(get_theme_icon("fm_home", "EditorIcons"));
+		b = Object::cast_to<Button>(nav->get_node_or_null("NavRefresh"));
+		if (b) b->set_button_icon(get_theme_icon("fm_refresh", "EditorIcons"));
+	}
+	Node *actions = get_node_or_null("VBox/HBox2");
+	if (actions) {
+		Button *b = Object::cast_to<Button>(actions->get_child(0));
+		if (b) b->set_button_icon(get_theme_icon("fm_copy", "EditorIcons"));
+		b = Object::cast_to<Button>(actions->get_child(1));
+		if (b) b->set_button_icon(get_theme_icon("fm_cut", "EditorIcons"));
+		b = Object::cast_to<Button>(actions->get_child(2));
+		if (b) b->set_button_icon(get_theme_icon("fm_paste", "EditorIcons"));
+		b = Object::cast_to<Button>(actions->get_child(3));
+		if (b) b->set_button_icon(get_theme_icon("fm_rename", "EditorIcons"));
+		b = Object::cast_to<Button>(actions->get_child(4));
+		if (b) b->set_button_icon(get_theme_icon("fm_delete", "EditorIcons"));
+		b = Object::cast_to<Button>(actions->get_child(5));
+		if (b) b->set_button_icon(get_theme_icon("fm_newfolder", "EditorIcons"));
+		b = Object::cast_to<Button>(actions->get_child(6));
+		if (b) b->set_button_icon(get_theme_icon("fm_extract", "EditorIcons"));
+		b = Object::cast_to<Button>(actions->get_child(7));
+		if (b) b->set_button_icon(get_theme_icon("fm_import", "EditorIcons"));
+		b = Object::cast_to<Button>(actions->get_child(8));
+		if (b) b->set_button_icon(get_theme_icon("fm_info", "EditorIcons"));
 	}
 }
 
@@ -585,7 +602,7 @@ Error McpFileManager::_copy_recursive(const String &p_from, const String &p_to, 
 		d->list_dir_begin();
 		String fn = d->get_next();
 		while (!fn.is_empty()) {
-			Error err = _copy_recursive(p_from.rstrip("/") + "/" + fn, p_to.rstrip("/") + "/" + fn, r_count);
+			Error err = this->_copy_recursive(p_from.rstrip("/") + "/" + fn, p_to.rstrip("/") + "/" + fn, r_count);
 			if (err != OK) {
 				return err;
 			}
@@ -610,7 +627,7 @@ Error McpFileManager::_remove_recursive(const String &p_path) {
 		d->list_dir_begin();
 		String fn = d->get_next();
 		while (!fn.is_empty()) {
-			Error err = _remove_recursive(p_path.rstrip("/") + "/" + fn);
+			Error err = this->_remove_recursive(p_path.rstrip("/") + "/" + fn);
 			if (err != OK) {
 				return err;
 			}
