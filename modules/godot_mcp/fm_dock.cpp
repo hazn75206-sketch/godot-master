@@ -25,6 +25,15 @@
 #include "scene/resources/image_texture.h"
 #include "servers/display/display_server.h"
 
+// DirAccess::make_dir_recursive is an instance method in this Godot version.
+static Error fm_make_dir_recursive(const String &p_path) {
+	Ref<DirAccess> dir = DirAccess::create(DirAccess::ACCESS_FILESYSTEM);
+	if (dir.is_null()) {
+		return ERR_CANT_CREATE;
+	}
+	return dir->make_dir_recursive(p_path);
+}
+
 // ---------------------------------------------------------------- McpFileList
 
 Variant McpFileList::get_drag_data(const Point2 &p_point) {
@@ -592,7 +601,7 @@ void McpFileManager::_do_mkdir(const String &p_name) {
 
 Error McpFileManager::_copy_recursive(const String &p_from, const String &p_to, int &r_count) {
 	if (DirAccess::exists(p_from)) {
-		if (DirAccess::make_dir_recursive(p_to) != OK) {
+		if (fm_make_dir_recursive(p_to) != OK) {
 			return ERR_CANT_CREATE;
 		}
 		Ref<DirAccess> d = DirAccess::open(p_from);
@@ -647,7 +656,7 @@ void McpFileManager::_do_extract(const String &p_zip) {
 		return;
 	}
 	String dest = p_zip.get_base_dir().rstrip("/") + "/" + p_zip.get_file().get_basename() + "/";
-	DirAccess::make_dir_recursive(dest);
+	fm_make_dir_recursive(dest);
 	ProgressDialog::get_singleton()->add_task("fm_extract", "Mengekstrak zip", 100);
 	int done = 0;
 	int ret = unzGoToFirstFile(pkg);
@@ -663,7 +672,7 @@ void McpFileManager::_do_extract(const String &p_zip) {
 				buf.resize(info.uncompressed_size);
 				if (unzReadCurrentFile(pkg, buf.ptrw(), info.uncompressed_size) >= 0) {
 					String out = dest + rel;
-					DirAccess::make_dir_recursive(out.get_base_dir());
+					fm_make_dir_recursive(out.get_base_dir());
 					Ref<FileAccess> f = FileAccess::open(out, FileAccess::WRITE);
 					if (f.is_valid()) {
 						f->store_buffer(buf);
@@ -690,7 +699,7 @@ void McpFileManager::_do_import(const Vector<String> &p_src, const String &p_dst
 		status_label->set_text("Folder tujuan tidak valid.");
 		return;
 	}
-	DirAccess::make_dir_recursive(dest);
+	fm_make_dir_recursive(dest);
 	int count = 0;
 	for (const String &s : p_src) {
 		if (this->_copy_recursive(s, dest.rstrip("/") + "/" + s.get_file(), count) != OK) {

@@ -68,7 +68,6 @@ class McpFileManager : public PanelContainer {
 	void _scan_if_inside_project(const String &p_path);
 	Error _copy_recursive(const String &p_from, const String &p_to, int &r_count);
 	Error _remove_recursive(const String &p_path);
-	String get_current_dir() const { return current_dir; }
 
 	void _on_item_activated(int p_idx);
 	void _on_search_changed(const String &p_text);
@@ -94,6 +93,7 @@ protected:
 
 public:
 	void open_dir(const String &p_dir);
+	String get_current_dir() const { return current_dir; }
 	McpFileManager();
 };
 
