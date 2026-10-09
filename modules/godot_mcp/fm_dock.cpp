@@ -322,16 +322,16 @@ String McpFileManager::_icon_for(const String &p_name, bool p_dir) const {
 
 void McpFileManager::_apply_button_icons() {
 	// Use the node names we set during creation
-	Node *nav = get_node_or_null("VBox/HBox");
+	Node *nav = get_node_or_null(NodePath("VBox/HBox"));
 	if (nav) {
-		Button *b = Object::cast_to<Button>(nav->get_node_or_null("NavBack"));
+		Button *b = Object::cast_to<Button>(nav->get_node_or_null(NodePath("NavBack")));
 		if (b) b->set_button_icon(get_theme_icon("fm_back", "EditorIcons"));
-		b = Object::cast_to<Button>(nav->get_node_or_null("NavHome"));
+		b = Object::cast_to<Button>(nav->get_node_or_null(NodePath("NavHome")));
 		if (b) b->set_button_icon(get_theme_icon("fm_home", "EditorIcons"));
-		b = Object::cast_to<Button>(nav->get_node_or_null("NavRefresh"));
+		b = Object::cast_to<Button>(nav->get_node_or_null(NodePath("NavRefresh")));
 		if (b) b->set_button_icon(get_theme_icon("fm_refresh", "EditorIcons"));
 	}
-	Node *actions = get_node_or_null("VBox/HBox2");
+	Node *actions = get_node_or_null(NodePath("VBox/HBox2"));
 	if (actions) {
 		Button *b = Object::cast_to<Button>(actions->get_child(0));
 		if (b) b->set_button_icon(get_theme_icon("fm_copy", "EditorIcons"));
@@ -693,7 +693,7 @@ void McpFileManager::_do_import(const Vector<String> &p_src, const String &p_dst
 	DirAccess::make_dir_recursive(dest);
 	int count = 0;
 	for (const String &s : p_src) {
-		if (_copy_recursive(s, dest.rstrip("/") + "/" + s.get_file(), count) != OK) {
+		if (this->_copy_recursive(s, dest.rstrip("/") + "/" + s.get_file(), count) != OK) {
 			status_label->set_text("Gagal import: " + s);
 			return;
 		}
@@ -762,7 +762,7 @@ void McpFileManagerPlugin::_open_manager() {
 		win->hide();
 	} else {
 		win->popup_centered(Vector2i(680, 480));
-		fm->open_dir(fm->current_dir.is_empty() ? "/storage/emulated/0/Documents" : fm->current_dir);
+		fm->open_dir(fm->get_current_dir().is_empty() ? "/storage/emulated/0/Documents" : fm->get_current_dir());
 	}
 }
 
