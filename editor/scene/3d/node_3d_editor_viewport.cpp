@@ -5020,14 +5020,6 @@ void Node3DEditorViewport::switch_preview_camera(Camera3D *p_new_camera) {
 	surface->queue_redraw();
 }
 
-void Node3DEditorViewport::update_transform_gizmo_view() {
-	if (!camera->is_inside_tree()) {
-		return;
-	}
-	if (overlays_hidden) {
-		return;
-	}
-
 void Node3DEditorViewport::set_overlays_hidden(bool p_hidden) {
 	if (p_hidden == overlays_hidden) {
 		return;
@@ -5061,6 +5053,14 @@ void Node3DEditorViewport::set_overlays_hidden(bool p_hidden) {
 		}
 	}
 }
+
+void Node3DEditorViewport::update_transform_gizmo_view() {
+	if (!camera->is_inside_tree()) {
+		return;
+	}
+	if (overlays_hidden) {
+		return;
+	}
 
 	Transform3D xform = spatial_editor->get_gizmo_transform();
 
