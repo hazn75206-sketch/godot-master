@@ -9,6 +9,7 @@
 #include "core/config/project_settings.h"
 #include "core/crypto/crypto_core.h"
 #include "core/error/error_macros.h"
+#include "core/math/math_funcs.h"
 #include "core/input/input.h"
 #include "core/io/dir_access.h"
 #include "core/io/file_access.h"
@@ -24,6 +25,10 @@
 #include "mcp_server.h"
 #include "scene/main/node.h"
 #include "scene/main/scene_tree.h"
+#include "scene/3d/node_3d.h"
+#include "scene/3d/visual_instance_3d.h"
+#include "editor/scene/3d/node_3d_editor_plugin.h"
+#include "editor/scene/3d/node_3d_editor_viewport.h"
 #include "scene/main/viewport.h"
 #include "scene/main/window.h"
 #include "core/input/input_event.h"
@@ -233,7 +238,7 @@ static void _walk_assets(const String &p_dir, Array &r_out, const String &p_patt
 	d.unref();
 }
 
-static void _walk_scene(Node *p_node, Node *p_root, Dictionary &r_out) {
+static void _walk_scene(Node *p_node, Node *p_root, Dictionary &r_out, bool p_include_all = false) {
 	r_out["name"] = p_node->get_name();
 	r_out["type"] = p_node->get_class();
 	r_out["path"] = p_root->get_path_to(p_node);
@@ -268,18 +273,28 @@ static void _walk_scene(Node *p_node, Node *p_root, Dictionary &r_out) {
 	if (!props.is_empty()) {
 		r_out["properties"] = props;
 	}
+	if (p_include_all) {
+		Node3D *n3d = Object::cast_to<Node3D>(p_node);
+		if (n3d) {
+			r_out["global_position"] = n3d->get_global_position();
+		}
+	}
 	Array children;
 	int n = p_node->get_child_count();
 	for (int i = 0; i < n; i++) {
 		Node *c = p_node->get_child(i);
-		if (c->get_owner() != p_root && c != p_root) {
+		bool external = (c->get_owner() != p_root && c != p_root);
+		if (!p_include_all && external) {
 			continue;
 		}
 		if (String(c->get_name()).to_lower() == "editorpaint" && c->get_class() == "SubViewport") {
 			continue;
 		}
 		Dictionary child;
-		_walk_scene(c, p_root, child);
+		if (external) {
+			child["external"] = true;
+		}
+		_walk_scene(c, p_root, child, p_include_all);
 		children.append(child);
 	}
 	if (!children.is_empty()) {
@@ -477,7 +492,26 @@ static Variant _tool_get_scene_tree(const Dictionary &p_args) {
 	Dictionary tree;
 	tree["scene_path"] = root->get_scene_file_path().is_empty() ? String("<untitled>") : root->get_scene_file_path();
 	Dictionary r;
-	_walk_scene(root, root, r);
+	bool expand = p_args.get("expand_instances", false);
+	_walk_scene(root, root, r, expand);
+	tree["root"] = r;
+	return mcp_tool_ret_json(tree);
+}
+
+static Variant _tool_game_tree(const Dictionary &p_args) {
+	(void)p_args;
+	SceneTree *st = SceneTree::get_singleton();
+	if (!st) {
+		return mcp_tool_ret_error("SceneTree tidak tersedia.");
+	}
+	Node *root = st->get_current_scene();
+	if (!root) {
+		return mcp_tool_ret_error("Game tidak berjalan (tidak ada current scene).");
+	}
+	Dictionary tree;
+	tree["scene_path"] = root->get_scene_file_path().is_empty() ? String("<runtime>") : root->get_scene_file_path();
+	Dictionary r;
+	_walk_scene(root, root, r, true);
 	tree["root"] = r;
 	return mcp_tool_ret_json(tree);
 }
@@ -576,6 +610,43 @@ static Variant _tool_add_node(const Dictionary &p_args) {
 	ur->add_undo_method(parent, "remove_child", node);
 	ur->commit_action();
 	return mcp_tool_ret_text(vformat("Menambahkan %s \'%s\' di bawah %s", class_name, final_name, _scene_rel_path(parent)));
+}
+
+static Variant _tool_instance_node(const Dictionary &p_args) {
+	EditorInterface *ei = EditorInterface::get_singleton();
+	Node *root = _scene_root();
+	if (!ei || !root) {
+		return mcp_tool_ret_error("Tidak ada scene yang terbuka.");
+	}
+	String scene_path = p_args.get("scene", String());
+	String name = p_args.get("name", String());
+	String parent_path = p_args.get("parent", String());
+	if (scene_path.is_empty() || !FileAccess::exists(scene_path)) {
+		return mcp_tool_ret_error(vformat("Scene tidak ditemukan: %s", scene_path));
+	}
+	Node *parent = parent_path.is_empty() || parent_path == "." ? root : _resolve_node(parent_path);
+	if (!parent) {
+		return mcp_tool_ret_error(vformat("Parent tidak ditemukan: %s", parent_path));
+	}
+	Ref<PackedScene> ps = ResourceLoader::load(scene_path);
+	if (ps.is_null()) {
+		return mcp_tool_ret_error(vformat("Gagal memuat scene (bukan PackedScene?): %s", scene_path));
+	}
+	Node *node = ps->instantiate();
+	if (!node) {
+		return mcp_tool_ret_error(vformat("Gagal meng-instance: %s", scene_path));
+	}
+	if (!name.is_empty()) {
+		node->set_name(name);
+	}
+	EditorUndoRedoManager *ur = ei->get_editor_undo_redo();
+	ur->create_action(vformat("MCP: meng-instance %s", scene_path));
+	ur->add_do_method(parent, "add_child", node, true);
+	ur->add_do_method(node, "set_owner", root);
+	ur->add_undo_method(node, "set_owner", (Object *)nullptr);
+	ur->add_undo_method(parent, "remove_child", node);
+	ur->commit_action();
+	return mcp_tool_ret_text(vformat("Meng-instance \'%s\' sebagai \'%s\' di bawah %s", scene_path, node->get_name(), _scene_rel_path(parent)));
 }
 
 static Variant _tool_remove_node(const Dictionary &p_args) {
@@ -981,6 +1052,15 @@ static Variant _tool_game_state(const Dictionary &p_args) {
 	if (root) {
 		st["current_scene"] = root->get_scene_file_path();
 	}
+	if (ei->is_playing_scene()) {
+		SceneTree *gt = SceneTree::get_singleton();
+		Node *groot = gt ? gt->get_current_scene() : nullptr;
+		st["playing_scene"] = groot ? groot->get_scene_file_path() : String("<runtime>");
+	} else {
+		st["playing_scene"] = String();
+	}
+	Engine *eng = Engine::get_singleton();
+	st["fps"] = eng ? Math::snapped(eng->get_frames_per_second(), 0.1) : 0.0;
 	return mcp_tool_ret_json(st);
 }
 
@@ -1067,30 +1147,146 @@ static Variant _tool_send_input(const Dictionary &p_args) {
 	return mcp_tool_ret_error(vformat("Jenis input tidak dikenal: %s", kind));
 }
 
+static AABB _mcp_node_aabb(Node *p_node) {
+	AABB ab;
+	bool has = false;
+	Array stack;
+	stack.push_back(p_node);
+	while (!stack.is_empty()) {
+		Node *n = Object::cast_to<Node>(stack.pop_back());
+		if (!n) {
+			continue;
+		}
+		VisualInstance3D *vi = Object::cast_to<VisualInstance3D>(n);
+		if (vi) {
+			AABB a = vi->get_global_transform().xform(vi->get_aabb());
+			if (!has) {
+				ab = a;
+				has = true;
+			} else {
+				ab = ab.merge(a);
+			}
+		}
+		for (int i = 0; i < n->get_child_count(); i++) {
+			stack.push_back(n->get_child(i));
+		}
+	}
+	return has ? ab : AABB();
+}
+
 static Variant _tool_screenshot(const Dictionary &p_args) {
 	EditorInterface *ei = EditorInterface::get_singleton();
 	if (!ei) {
 		return mcp_tool_ret_error("Editor tidak tersedia.");
 	}
 	String source = p_args.get("source", "editor");
+	int max_width = int(p_args.get("max_width", 0));
+	String save_path = p_args.get("save_path", String());
+	bool hide_gizmos = p_args.get("hide_gizmos", false);
+	String focus_node = p_args.get("focus_node", String());
+	String actual = "editor";
 	Ref<Image> img;
-	if (source == "game" && ei->is_playing_scene()) {
+	bool playing = ei->is_playing_scene();
+	if ((source == "game" || source == "game2d") && playing) {
 		Window *w = SceneTree::get_singleton()->get_root();
 		if (w) {
 			img = w->get_texture()->get_image();
+			actual = "game";
+		}
+	} else if (source == "game2d") {
+		return mcp_tool_ret_error("Game tidak berjalan (source=game2d butuh play).");
+	}
+	Node3DEditorViewport *evp = nullptr;
+	if (img.is_null()) {
+		if (source == "2d") {
+			SubViewport *vp = ei->get_editor_viewport_2d();
+			if (vp) {
+				img = vp->get_texture()->get_image();
+			}
+			actual = "editor_2d";
+		} else {
+			SubViewport *vp = ei->get_editor_viewport_3d();
+			Node3DEditor *ne = Node3DEditor::get_singleton();
+			if (ne) {
+				evp = ne->get_editor_viewport(0);
+			}
+			if (hide_gizmos && evp) {
+				evp->set_overlays_hidden(true);
+			}
+			if (vp) {
+				img = vp->get_texture()->get_image();
+			}
+			if (hide_gizmos && evp) {
+				evp->set_overlays_hidden(false);
+			}
+			actual = "editor";
 		}
 	}
-	if (img.is_null()) {
-		SubViewport *vp = source == "2d" ? ei->get_editor_viewport_2d() : ei->get_editor_viewport_3d();
-		if (vp) {
-			img = vp->get_texture()->get_image();
+	if (img.is_null() || img->is_empty()) {
+		if (hide_gizmos && evp) {
+			evp->set_overlays_hidden(false);
 		}
-	}
-	if (img.is_null()) {
 		return mcp_tool_ret_error("Tidak dapat mengambil screenshot (apakah viewport tersedia?).");
+	}
+	// focus_node: crop ke AABB global node (tanpa gerakkan kamera).
+	if (!focus_node.is_empty() && actual != "game") {
+		Node *target = _resolve_node(focus_node);
+		SubViewport *vp = ei->get_editor_viewport_3d();
+		Camera3D *cam = vp ? vp->get_camera_3d() : nullptr;
+		if (target && cam) {
+			AABB ab = _mcp_node_aabb(target);
+			if (ab.size.length() > 0.0001) {
+				Vector2 lo(1e9, 1e9), hi(-1e9, -1e9);
+				int vis = 0;
+				for (int i = 0; i < 8; i++) {
+					Vector3 p(
+							ab.position.x + ((i & 1) ? ab.size.x : 0.0),
+							ab.position.y + ((i & 2) ? ab.size.y : 0.0),
+							ab.position.z + ((i & 4) ? ab.size.z : 0.0));
+					if (cam->is_position_behind(p)) {
+						continue;
+					}
+					Vector2 s = cam->unproject_position(p);
+					lo.x = MIN(lo.x, s.x);
+					lo.y = MIN(lo.y, s.y);
+					hi.x = MAX(hi.x, s.x);
+					hi.y = MAX(hi.y, s.y);
+					vis++;
+				}
+				if (vis > 0) {
+					float pad_x = (hi.x - lo.x) * 0.1 + 8.0;
+					float pad_y = (hi.y - lo.y) * 0.1 + 8.0;
+					Rect2i region(
+							MAX(0, int(lo.x - pad_x)), MAX(0, int(lo.y - pad_y)),
+							MIN(img->get_width(), int(hi.x + pad_x)) - MAX(0, int(lo.x - pad_x)),
+							MIN(img->get_height(), int(hi.y + pad_y)) - MAX(0, int(lo.y - pad_y)));
+					if (region.size.x > 8 && region.size.y > 8) {
+						img = img->get_region(region);
+					}
+				}
+			}
+		}
+	}
+	if (max_width > 0 && img->get_width() > max_width) {
+		int nh = int((float)img->get_height() * max_width / img->get_width());
+		img->resize(max_width, MAX(nh, 1));
+	}
+	if (!save_path.is_empty()) {
+		if (!save_path.ends_with(".png")) {
+			return mcp_tool_ret_error("save_path harus diakhiri .png");
+		}
+		if (img->save_png(save_path) != OK) {
+			return mcp_tool_ret_error(vformat("Gagal menyimpan screenshot: %s", save_path));
+		}
+		_mcp_refresh_editor();
+		Dictionary out;
+		out["saved"] = save_path;
+		out["actual_source"] = actual;
+		return mcp_tool_ret_json(out);
 	}
 	Dictionary ret;
 	_append_icon(ret, img);
+	ret["actual_source"] = actual;
 	return ret;
 }
 
@@ -1191,7 +1387,45 @@ static Variant _tool_filesystem_manage(const Dictionary &p_args) {
 	if (op == "list") {
 		return _tool_list_assets(p_args);
 	}
-	return mcp_tool_ret_error(_unknown_op(op, "read|write|list"));
+	if (op == "remove") {
+		String path = p_args.get("path", String());
+		bool confirm = p_args.get("confirm", false);
+		if (path.is_empty()) {
+			return mcp_tool_ret_error("Argumen 'path' wajib diisi.");
+		}
+		if (!confirm) {
+			return mcp_tool_ret_error("Hapus file butuh confirm=true.");
+		}
+		if (!FileAccess::exists(path) && !DirAccess::exists(path)) {
+			return mcp_tool_ret_error(vformat("Path tidak ditemukan: %s", path));
+		}
+		Error err = DirAccess::remove_absolute(path);
+		if (err != OK) {
+			return mcp_tool_ret_error(vformat("Gagal menghapus %s (err %d). Direktori harus kosong.", path, (int)err));
+		}
+		_mcp_refresh_editor();
+		return mcp_tool_ret_text(vformat("Dihapus: %s", path));
+	}
+	if (op == "move" || op == "rename") {
+		String path = p_args.get("path", String());
+		String dest = p_args.get("dest", String());
+		if (dest.is_empty()) {
+			dest = p_args.get("new_path", String());
+		}
+		if (path.is_empty() || dest.is_empty()) {
+			return mcp_tool_ret_error("Argumen 'path' dan 'dest' wajib diisi.");
+		}
+		if (!FileAccess::exists(path)) {
+			return mcp_tool_ret_error(vformat("File tidak ditemukan: %s", path));
+		}
+		Error err = DirAccess::rename_absolute(path, dest);
+		if (err != OK) {
+			return mcp_tool_ret_error(vformat("Gagal memindah %s -> %s (err %d).", path, dest, (int)err));
+		}
+		_mcp_refresh_editor();
+		return mcp_tool_ret_text(vformat("Dipindah: %s -> %s", path, dest));
+	}
+	return mcp_tool_ret_error(_unknown_op(op, "read|write|list|remove|move"));
 }
 
 static Variant _tool_script_patch(const Dictionary &p_args) {
@@ -1252,7 +1486,21 @@ static Variant _tool_project_manage(const Dictionary &p_args) {
 	if (op == "set_setting") {
 		return _tool_set_project_setting(p_args);
 	}
-	return mcp_tool_ret_error(_unknown_op(op, "info|get_setting|set_setting"));
+	if (op == "reimport") {
+		String path = p_args.get("path", String());
+		if (path.is_empty() || !FileAccess::exists(path)) {
+			return mcp_tool_ret_error(vformat("File tidak ditemukan: %s", path));
+		}
+		EditorFileSystem *efs = EditorFileSystem::get_singleton();
+		if (!efs) {
+			return mcp_tool_ret_error("EditorFileSystem tidak tersedia.");
+		}
+		Vector<String> files;
+		files.push_back(path);
+		efs->reimport_files(files);
+		return mcp_tool_ret_text(vformat("Reimport diminta: %s", path));
+	}
+	return mcp_tool_ret_error(_unknown_op(op, "info|get_setting|set_setting|reimport"));
 }
 
 static Variant _tool_project_run(const Dictionary &p_args) {
@@ -1396,7 +1644,26 @@ static Variant _tool_debugger_errors(const Dictionary &p_args) {
 	// Reads the editor Debugger panel: errors/warnings reported by a running
 	// game (which are delivered over the debugger protocol and are NOT seen
 	// by the in-process error handler used by logs_read).
+	// Args: level (all|error|warning), dedup (gabung pesan identik + count),
+	// limit (maks entri per respons, 0 = tanpa batas), stack (sertakan
+	// stack_dump live per session), clear (bersihkan panel dulu).
 	EditorDebuggerNode *edn = EditorDebuggerNode::get_singleton();
+	String level = p_args.get("level", "all");
+	bool dedup = p_args.get("dedup", true);
+	int limit = int(p_args.get("limit", 200));
+	bool want_stack = p_args.get("stack", false);
+	if (p_args.get("clear", false)) {
+		int cleared = 0;
+		for (int i = 0; i < 32; i++) { // Sessions are a small fixed set of tabs.
+			ScriptEditorDebugger *dbg = edn->get_debugger(i);
+			if (!dbg) {
+				break;
+			}
+			dbg->clear_errors_list();
+			cleared++;
+		}
+		return mcp_tool_ret_text(vformat("Panel debugger dibersihkan (%d session).", cleared));
+	}
 	Array out;
 	for (int i = 0; i < 32; i++) { // Sessions are a small fixed set of tabs.
 		ScriptEditorDebugger *dbg = edn->get_debugger(i);
@@ -1409,31 +1676,77 @@ static Variant _tool_debugger_errors(const Dictionary &p_args) {
 		session["error_count"] = dbg->get_error_count();
 		session["warning_count"] = dbg->get_warning_count();
 		Array entries;
+		Dictionary seen;
+		int added = 0;
 		Tree *tree = dbg->get_errors_tree();
 		if (tree && tree->get_root()) {
 			TreeItem *item = tree->get_root()->get_first_child();
 			while (item) {
+				String lv = item->has_meta("_is_warning") ? "warning" : "error";
+				if ((level == "error" && lv != "error") || (level == "warning" && lv != "warning")) {
+					item = item->get_next();
+					continue;
+				}
+				if (limit > 0 && added >= limit) {
+					break;
+				}
 				Dictionary e;
-				e["level"] = item->has_meta("_is_warning") ? "warning" : "error";
+				e["level"] = lv;
 				e["time"] = item->get_text(0);
 				e["message"] = item->get_text(1);
 				Array details;
 				TreeItem *child = item->get_first_child();
 				while (child) {
-					String t = child->get_text(0);
-					if (!t.is_empty()) {
-						details.append(t);
+					// Kolom 0: info umum; kolom 1: frame callstack
+					// ("file:line @ func") yang selama ini terbuang.
+					String t0 = child->get_text(0);
+					String t1 = child->get_text(1);
+					if (!t0.is_empty()) {
+						details.append(t0);
+					}
+					if (!t1.is_empty()) {
+						details.append("at " + t1);
 					}
 					child = child->get_next();
 				}
 				if (!details.is_empty()) {
 					e["details"] = details;
 				}
+				if (dedup) {
+					String key = lv + "|" + String(e["message"]) + "|" + JSON::stringify(details);
+					if (seen.has(key)) {
+						Dictionary prev = entries[int(seen[key])];
+						prev["count"] = int(prev.get("count", 1)) + 1;
+						item = item->get_next();
+						continue;
+					}
+					seen[key] = entries.size();
+					e["count"] = 1;
+				}
 				entries.append(e);
+				added++;
 				item = item->get_next();
 			}
 		}
 		session["entries"] = entries;
+		if (want_stack) {
+			Array frames;
+			Tree *sdump = dbg->get_stack_dump();
+			if (sdump && sdump->get_root()) {
+				TreeItem *sitem = sdump->get_root()->get_first_child();
+				while (sitem) {
+					Dictionary meta = sitem->get_metadata(0);
+					if (!meta.is_empty()) {
+						frames.append(meta);
+					} else {
+						frames.append(sitem->get_text(0));
+					}
+					sitem = sitem->get_next();
+				}
+			}
+			session["stack"] = frames;
+			session["paused"] = !frames.is_empty();
+		}
 		out.append(session);
 	}
 	return mcp_tool_ret_json(out);
@@ -1775,7 +2088,7 @@ void mcp_register_tools(McpServer *p_server) {
 	p_server->register_tool("session_manage", "Informasi session. Args: op (info|activate).", _schema_any(Vector<String>{ "op" }), _tool_session_manage);
 
 	// Scene tools.
-	p_server->register_tool("scene_get_hierarchy", "Ambil pohon scene saat ini sebagai JSON (nodes, tipe, path, properti utama). Args: tidak ada.", _schema_any(Vector<String>()), _tool_get_scene_tree);
+	p_server->register_tool("scene_get_hierarchy", "Ambil pohon scene saat ini sebagai JSON (nodes, tipe, path, properti utama). Args: expand_instances (bool, tampilkan isi instance).", _schema_any(Vector<String>{ "expand_instances" }), _tool_get_scene_tree);
 	p_server->register_tool("get_scene_tree", "Alias dari scene_get_hierarchy.", _schema_any(Vector<String>()), _tool_get_scene_tree);
 	p_server->register_tool("scene_open", "Buka scene .tscn di editor. Args: path.", _schema(true, Vector<String>{ "path" }), _tool_open_scene);
 	p_server->register_tool("open_scene", "Alias dari scene_open.", _schema(true, Vector<String>{ "path" }), _tool_open_scene);
@@ -1787,6 +2100,7 @@ void mcp_register_tools(McpServer *p_server) {
 	// Node tools.
 	p_server->register_tool("node_create", "Tambahkan node ke scene. Args: class, name, parent (path relatif).", _schema(true, Vector<String>{ "class" }), _tool_add_node);
 	p_server->register_tool("add_node", "Alias dari node_create.", _schema(true, Vector<String>{ "class" }), _tool_add_node);
+	p_server->register_tool("node_instance", "Instance scene (.tscn/.glb/.fbx) ke scene terbuka. Args: scene, parent (path relatif), name (opsional).", _schema(true, Vector<String>{ "scene" }), _tool_instance_node);
 	p_server->register_tool("node_manage", "Operasi node. Args: op (remove|rename|reparent), path, name, new_parent.", _schema(true, Vector<String>{ "op", "path" }), _tool_node_manage);
 	p_server->register_tool("remove_node", "Alias dari node_manage op=remove. Args: path.", _schema(true, Vector<String>{ "path" }), _tool_remove_node);
 	p_server->register_tool("rename_node", "Alias dari node_manage op=rename. Args: path, name.", _schema(true, Vector<String>{ "path", "name" }), _tool_rename_node);
@@ -1806,13 +2120,13 @@ void mcp_register_tools(McpServer *p_server) {
 	p_server->register_tool("read_script", "Alias dari script_manage op=read. Args: path.", _schema(true, Vector<String>{ "path" }), _tool_read_script);
 
 	// Filesystem tools.
-	p_server->register_tool("filesystem_manage", "Operasi filesystem. Args: op (read|write|list), path, content, pattern, recursive.", _schema(true, Vector<String>{ "op" }), _tool_filesystem_manage);
+	p_server->register_tool("filesystem_manage", "Operasi filesystem. Args: op (read|write|list|remove|move), path, content, pattern, recursive, dest, confirm.", _schema(true, Vector<String>{ "op" }), _tool_filesystem_manage);
 	p_server->register_tool("read_file", "Alias dari filesystem_manage op=read. Args: path, json.", _schema(true, Vector<String>{ "path" }), _tool_read_file);
 	p_server->register_tool("write_file", "Alias dari filesystem_manage op=write. Args: path, content.", _schema(true, Vector<String>{ "path", "content" }), _tool_write_file);
 	p_server->register_tool("list_assets", "Alias dari filesystem_manage op=list. Args: pattern, recursive.", _schema_any(Vector<String>{ "pattern", "recursive" }), _tool_list_assets);
 
 	// Project & run tools.
-	p_server->register_tool("project_manage", "Operasi proyek. Args: op (info|get_setting|set_setting), name, value, save.", _schema(true, Vector<String>{ "op" }), _tool_project_manage);
+	p_server->register_tool("project_manage", "Operasi proyek. Args: op (info|get_setting|set_setting|reimport), name, value, save, path.", _schema(true, Vector<String>{ "op" }), _tool_project_manage);
 	p_server->register_tool("project_info", "Alias dari project_manage op=info.", _schema_any(Vector<String>()), _tool_project_info);
 	p_server->register_tool("get_project_setting", "Alias dari project_manage op=get_setting. Args: name.", _schema(true, Vector<String>{ "name" }), _tool_get_project_setting);
 	p_server->register_tool("set_project_setting", "Alias dari project_manage op=set_setting. Args: name, value, save.", _schema(true, Vector<String>{ "name" }), _tool_set_project_setting);
@@ -1820,18 +2134,19 @@ void mcp_register_tools(McpServer *p_server) {
 	p_server->register_tool("run_main_scene", "Alias dari project_run op=play.", _schema_any(Vector<String>()), _tool_run_main_scene);
 	p_server->register_tool("run_custom_scene", "Alias dari project_run op=run_scene. Args: path.", _schema(true, Vector<String>{ "path" }), _tool_run_custom_scene);
 	p_server->register_tool("stop_game", "Alias dari project_run op=stop.", _schema_any(Vector<String>()), _tool_stop_game);
-	p_server->register_tool("game_state", "Alias dari project_run op=state.", _schema_any(Vector<String>()), _tool_game_state);
+	p_server->register_tool("game_state", "Alias dari project_run op=state (playing, current_scene, playing_scene, fps).", _schema_any(Vector<String>()), _tool_game_state);
+	p_server->register_tool("game_tree", "Hierarki scene game yang sedang berjalan (termasuk isi instance + global_position). Args: tidak ada.", _schema_any(Vector<String>()), _tool_game_tree);
 
 	// Game input.
 	p_server->register_tool("game_manage", "Operasi game. Args: op (state|send_action|send_key|send_mouse|input), action/key/button, pressed, position, kind.", _schema(true, Vector<String>{ "op" }), _tool_game_manage);
 	p_server->register_tool("send_input", "Alias dari game_manage op=input. Args: kind (action|key|mouse_button), action/key/button, pressed, position.", _schema(false, Vector<String>{ "kind", "action", "key", "button", "pressed", "position" }), _tool_send_input);
 
 	// Editor utilities.
-	p_server->register_tool("editor_screenshot", "Ambil screenshot viewport editor (atau game saat sedang berjalan). Mengembalikan gambar PNG. Args: source (editor|game|2d).", _schema_any(Vector<String>{ "source" }), _tool_screenshot);
-	p_server->register_tool("screenshot", "Alias dari editor_screenshot.", _schema_any(Vector<String>{ "source" }), _tool_screenshot);
+	p_server->register_tool("editor_screenshot", "Ambil screenshot viewport editor (atau game saat sedang berjalan). Mengembalikan gambar PNG + actual_source. Args: source (editor|2d|game|game2d), max_width, save_path (.png), hide_gizmos (bool), focus_node (crop ke node).", _schema_any(Vector<String>{ "source", "max_width", "save_path", "hide_gizmos", "focus_node" }), _tool_screenshot);
+	p_server->register_tool("screenshot", "Alias dari editor_screenshot.", _schema_any(Vector<String>{ "source", "max_width", "save_path", "hide_gizmos", "focus_node" }), _tool_screenshot);
 	p_server->register_tool("batch_execute", "Jalankan beberapa tool dalam satu kali perjalanan. Args: operations (array berisi {tool: nama, arguments: {}}), stop_on_error (bool). Mengembalikan array hasil.", _schema_any(Vector<String>{ "operations", "stop_on_error" }), _tool_batch_execute);
 	p_server->register_tool("logs_read", "Baca baris log error/peringatan/MCP editor terbaru. Args: level (all|error|warning|info), limit (int).", _schema_any(Vector<String>{ "level", "limit" }), _tool_logs_read);
-	p_server->register_tool("debugger_errors", "Baca error/peringatan yang sedang tampil di panel Debugger editor (dari game yang sedang berjalan).", _schema_any(Vector<String>()), _tool_debugger_errors);
+	p_server->register_tool("debugger_errors", "Baca error/peringatan panel Debugger editor (dari game berjalan). Args: level (all|error|warning), dedup (bool), limit (0=tanpa batas), stack (bool, sertakan stack live), clear (bool, bersihkan panel).", _schema_any(Vector<String>{ "level", "dedup", "limit", "stack", "clear" }), _tool_debugger_errors);
 	p_server->register_tool("refresh", "Pindai ulang filesystem proyek dan muat ulang scene/pengaturan proyek yang berubah di disk, tanpa memulai ulang editor.", _schema_any(Vector<String>()), _tool_refresh);
 	p_server->register_tool("duplicate_node", "Duplikat node + subtree-nya sebagai sibling (undoable). Args: path, name (opsional).", _schema(true, Vector<String>{ "path" }), _tool_duplicate_node);
 	p_server->register_tool("execute_script", "Jalankan snippet GDScript di editor (EditorInterface/Engine/ProjectSettings tersedia, indentasi otomatis). Args: code. AWAS: infinite loop menggantung editor.", _schema(true, Vector<String>{ "code" }), _tool_execute_script);

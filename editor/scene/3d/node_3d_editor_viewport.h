@@ -279,6 +279,8 @@ private:
 	Camera3D *camera = nullptr;
 	bool transforming = false;
 	bool transform_gizmo_visible = true;
+	bool overlays_hidden = false;
+	uint32_t saved_cull_mask = 0;
 	bool collision_reposition = false;
 	real_t gizmo_scale;
 
@@ -556,6 +558,9 @@ public:
 	void update_surface() { surface->queue_redraw(); }
 	void update_transform_gizmo_view();
 	void update_transform_gizmo_highlight();
+	// Sembunyikan/tampilkan overlay editor (gizmo + grid) untuk screenshot bersih.
+	// Aman dipanggil berpasangan; state dikembalikan seperti semula.
+	void set_overlays_hidden(bool p_hidden);
 
 	void set_can_preview(Camera3D *p_preview);
 	void switch_preview_camera(Camera3D *p_new_camera);

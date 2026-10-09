@@ -1934,6 +1934,10 @@ void ScriptEditorDebugger::_clear_errors_list() {
 	clear_button->set_disabled(true);
 }
 
+void ScriptEditorDebugger::clear_errors_list() {
+	_clear_errors_list();
+}
+
 void ScriptEditorDebugger::_breakpoints_item_rmb_selected(const Vector2 &p_pos, MouseButton p_button) {
 	if (p_button != MouseButton::RIGHT) {
 		return;

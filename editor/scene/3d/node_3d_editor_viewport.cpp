@@ -5024,6 +5024,43 @@ void Node3DEditorViewport::update_transform_gizmo_view() {
 	if (!camera->is_inside_tree()) {
 		return;
 	}
+	if (overlays_hidden) {
+		return;
+	}
+
+void Node3DEditorViewport::set_overlays_hidden(bool p_hidden) {
+	if (p_hidden == overlays_hidden) {
+		return;
+	}
+	overlays_hidden = p_hidden;
+	if (!camera) {
+		return;
+	}
+	RenderingServer *rs = RenderingServer::get_singleton();
+	if (p_hidden) {
+		saved_cull_mask = camera->get_cull_mask();
+		uint32_t layers = saved_cull_mask;
+		layers &= ~(1 << GIZMO_EDIT_LAYER);
+		layers &= ~(1 << GIZMO_GRID_LAYER);
+		camera->set_cull_mask(layers);
+		if (rs) {
+			for (int i = 0; i < 3; i++) {
+				rs->instance_set_visible(move_gizmo_instance[i], false);
+				rs->instance_set_visible(move_plane_gizmo_instance[i], false);
+				rs->instance_set_visible(rotate_gizmo_instance[i], false);
+				rs->instance_set_visible(scale_gizmo_instance[i], false);
+				rs->instance_set_visible(scale_plane_gizmo_instance[i], false);
+				rs->instance_set_visible(axis_gizmo_instance[i], false);
+			}
+			rs->instance_set_visible(rotate_gizmo_instance[3], false);
+		}
+	} else {
+		camera->set_cull_mask(saved_cull_mask);
+		if (spatial_editor) {
+			spatial_editor->update_transform_gizmo();
+		}
+	}
+}
 
 	Transform3D xform = spatial_editor->get_gizmo_transform();
 

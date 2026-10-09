@@ -342,6 +342,8 @@ public:
 	int get_error_count() const { return error_count; }
 	int get_warning_count() const { return warning_count; }
 	Tree *get_errors_tree() const { return error_tree; }
+	Tree *get_stack_dump() const { return stack_dump; }
+	void clear_errors_list();
 	String get_stack_script_file() const;
 	int get_stack_script_line() const;
 	int get_stack_script_frame() const;
