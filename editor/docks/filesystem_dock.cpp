@@ -3327,7 +3327,9 @@ void FileSystemDock::drop_data_fw(const Point2 &p_point, const Variant &p_data, 
 				confirm_move_to_dir = to_dir;
 
 				bool ask_before_moving_files = EDITOR_GET("docks/filesystem/ask_before_moving_files") && !Input::get_singleton()->is_key_pressed(Key::SHIFT);
-				confirm_to_copy = Input::get_singleton()->is_key_pressed(Key::CMD_OR_CTRL);
+				// fm_copy flag dari McpFileManager: paksa COPY (aman di HP tanpa Ctrl).
+				bool fm_copy = drag_data.has("fm_copy") && drag_data["fm_copy"];
+				confirm_to_copy = fm_copy || Input::get_singleton()->is_key_pressed(Key::CMD_OR_CTRL);
 
 				if (!ask_before_moving_files) {
 					_move_operation_confirm(to_dir, confirm_to_copy);
