@@ -27,6 +27,7 @@
 #include "scene/main/scene_tree.h"
 #include "scene/3d/node_3d.h"
 #include "scene/3d/visual_instance_3d.h"
+#include "scene/resources/packed_scene.h"
 #include "editor/scene/3d/node_3d_editor_plugin.h"
 #include "editor/scene/3d/node_3d_editor_viewport.h"
 #include "scene/main/viewport.h"
