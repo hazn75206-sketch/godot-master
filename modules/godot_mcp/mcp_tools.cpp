@@ -13,7 +13,6 @@
 #include "core/input/input.h"
 #include "core/io/dir_access.h"
 #include "core/io/file_access.h"
-#include "core/io/marshalls.h"
 #include "core/io/resource_loader.h"
 #include "editor/editor_undo_redo_manager.h"
 #include "core/os/os.h"
@@ -362,7 +361,7 @@ static Variant _tool_read_file(const Dictionary &p_args) {
 		Dictionary out;
 		out["path"] = path;
 		out["size"] = buf.size();
-		out["base64"] = Marshalls::raw_to_base64(buf.ptr(), buf.size());
+		out["base64"] = CryptoCore::b64_encode_str(buf.ptr(), buf.size());
 		return mcp_tool_ret_json(out);
 	}
 	if (p_args.get("json", false)) {
