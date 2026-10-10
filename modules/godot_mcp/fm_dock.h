@@ -109,7 +109,7 @@ class McpFileManager : public PanelContainer {
 	AcceptDialog *preview_dlg = nullptr;
 	TextureRect *preview_tr = nullptr;
 	Label *preview_zoom_label = nullptr;
-	Vector2 preview_base = Vector2::ZERO;
+	Vector2 preview_base = Vector2(0, 0);
 	float preview_zoom = 1.0f;
 
 protected:
