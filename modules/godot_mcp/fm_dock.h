@@ -127,18 +127,19 @@ class McpFileManagerPlugin : public EditorPlugin {
 	Button *toolbar_btn = nullptr;
 
 	void _open_manager();
+
+public:
 	void refresh_toolbar_icon();
+	static McpFileManagerPlugin *get_singleton() { return singleton; }
+	static void open_file_manager() { if (singleton) singleton->_open_manager(); }
+	McpFileManagerPlugin();
+	~McpFileManagerPlugin();
 
 protected:
 	void _enter_tree();
 	void _exit_tree();
 	void _unhandled_key_input(const Ref<InputEvent> &p_event);
 
-public:
-	static McpFileManagerPlugin *get_singleton() { return singleton; }
-	static void open_file_manager() { if (singleton) singleton->_open_manager(); }
-	McpFileManagerPlugin();
-	~McpFileManagerPlugin();
 private:
 	static McpFileManagerPlugin *singleton;
 };

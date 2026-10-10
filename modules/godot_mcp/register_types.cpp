@@ -12,7 +12,7 @@ void initialize_godot_mcp_module(ModuleInitializationLevel p_level) {
 	if (p_level == MODULE_INITIALIZATION_LEVEL_SCENE) {
 		GDREGISTER_CLASS(McpServer);
 #ifdef TOOLS_ENABLED
-		GDREGISTER_CLASS(McpFileList);
+		GDREGISTER_CLASS(McpFileTree);
 		GDREGISTER_CLASS(McpFileManager);
 		GDREGISTER_CLASS(McpFileManagerPlugin);
 #endif

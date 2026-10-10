@@ -2,6 +2,7 @@
 
 #include "fm_dock.h"
 
+#include "core/input/input_enums.h"
 #include "core/input/input_event.h"
 #include "core/io/dir_access.h"
 #include "core/io/file_access.h"
@@ -78,7 +79,6 @@ VBoxContainer *McpFileManager::_make_action(const char *p_icon, const char *p_la
 	VBoxContainer *vb = memnew(VBoxContainer);
 	vb->set_alignment(BoxContainer::ALIGNMENT_CENTER);
 	vb->set_mouse_filter(Control::MOUSE_FILTER_STOP);
-	vb->set_mouse_default_cursor_shape(Control::CURSOR_POINTING_HAND);
 	vb->set_custom_minimum_size(Vector2(66, 54));
 	vb->set_tooltip_text(p_tip);
 	TextureRect *tr = memnew(TextureRect);
@@ -86,7 +86,7 @@ VBoxContainer *McpFileManager::_make_action(const char *p_icon, const char *p_la
 	tr->set_expand_mode(TextureRect::EXPAND_IGNORE_SIZE);
 	tr->set_stretch_mode(TextureRect::STRETCH_KEEP_ASPECT_CENTERED);
 	tr->set_mouse_filter(Control::MOUSE_FILTER_IGNORE);
-	tr->set_size_flags_horizontal(Control::SIZE_SHRINK_CENTER);
+	tr->set_h_size_flags(Control::SIZE_SHRINK_CENTER);
 	if (has_theme_icon(p_icon, "EditorIcons")) {
 		tr->set_texture(get_theme_icon(p_icon, "EditorIcons"));
 	}
