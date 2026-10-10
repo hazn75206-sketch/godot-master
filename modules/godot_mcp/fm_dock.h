@@ -128,6 +128,7 @@ class McpFileManagerPlugin : public EditorPlugin {
 
 	Window *win = nullptr;
 	McpFileManager *fm = nullptr;
+	Button *toolbar_btn = nullptr;
 
 	void _open_manager();
 

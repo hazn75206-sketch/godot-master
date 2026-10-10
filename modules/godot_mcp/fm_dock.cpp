@@ -1040,6 +1040,16 @@ McpFileManagerPlugin::~McpFileManagerPlugin() {
 
 void McpFileManagerPlugin::_enter_tree() {
 	add_tool_menu_item("File Manager", callable_mp(this, &McpFileManagerPlugin::_open_manager));
+	// Tombol 1-klik di toolbar atas (lebih gampang dari menu Project > Tools).
+	toolbar_btn = memnew(Button);
+	toolbar_btn->set_tooltip_text("File Manager (Ctrl+Shift+F)");
+	toolbar_btn->set_flat(true);
+	toolbar_btn->connect("pressed", callable_mp(this, &McpFileManagerPlugin::_open_manager));
+	Control *base = EditorInterface::get_singleton()->get_base_control();
+	if (base && base->has_theme_icon("fm_dir", "EditorIcons")) {
+		toolbar_btn->set_button_icon(base->get_theme_icon("fm_dir", "EditorIcons"));
+	}
+	add_control_to_container(CONTAINER_TOOLBAR, toolbar_btn);
 	// Shortcut default Ctrl+Shift+F, tercatat di EditorSettings agar bisa diubah user.
 	EditorSettings *es = EditorSettings::get_singleton();
 	if (es && !es->has_setting("shortcuts/mcp_file_manager")) {
@@ -1057,6 +1067,10 @@ void McpFileManagerPlugin::_enter_tree() {
 void McpFileManagerPlugin::_exit_tree() {
 	set_process_unhandled_key_input(false);
 	remove_tool_menu_item("File Manager");
+	if (toolbar_btn) {
+		remove_control_from_container(CONTAINER_TOOLBAR, toolbar_btn);
+		toolbar_btn = nullptr;
+	}
 	if (win) {
 		win->hide();
 	}
