@@ -29,6 +29,9 @@
 /**************************************************************************/
 
 #include "inspector_dock.h"
+#ifdef TOOLS_ENABLED
+#include "modules/godot_mcp/fm_dock.h"
+#endif
 
 #include "core/io/resource_loader.h"
 #include "core/object/callable_mp.h"
@@ -771,6 +774,15 @@ InspectorDock::InspectorDock(EditorData &p_editor_data) {
 	forward_button->set_disabled(true);
 	button_hb->add_child(forward_button);
 	forward_button->connect(SceneStringName(pressed), callable_mp(this, &InspectorDock::_edit_forward));
+
+#ifdef TOOLS_ENABLED
+	Button *file_manager_button = memnew(Button);
+	file_manager_button->set_theme_type_variation(SceneStringName(FlatButton));
+	file_manager_button->set_tooltip_text(TTRC("Open File Manager."));
+	file_manager_button->set_button_icon(get_editor_theme_icon(SNAME("Folder")));
+	file_manager_button->connect(SceneStringName(pressed), callable_mp_static(&McpFileManagerPlugin::open_file_manager));
+	button_hb->add_child(file_manager_button);
+#endif
 
 	object_selector = memnew(EditorObjectSelector(EditorNode::get_singleton()->get_editor_selection_history()));
 	object_selector->set_h_size_flags(Control::SIZE_EXPAND_FILL);

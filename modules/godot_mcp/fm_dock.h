@@ -47,6 +47,20 @@ class McpFileManager : public PanelContainer {
 	String current_dir;
 	int sort_mode = 0;
 
+	// Button refs untuk _apply_button_icons
+	Button *btn_back = nullptr;
+	Button *btn_home = nullptr;
+	Button *btn_refresh = nullptr;
+	Button *btn_copy = nullptr;
+	Button *btn_cut = nullptr;
+	Button *btn_paste = nullptr;
+	Button *btn_rename = nullptr;
+	Button *btn_delete = nullptr;
+	Button *btn_mkdir = nullptr;
+	Button *btn_extract = nullptr;
+	Button *btn_import = nullptr;
+	Button *btn_info = nullptr;
+
 	void _build_ui();
 	void _build_shortcuts();
 	void _refresh();
@@ -58,11 +72,13 @@ class McpFileManager : public PanelContainer {
 	String _fmt_size(uint64_t p_bytes) const;
 	String _icon_for(const String &p_name, bool p_dir) const;
 	void _do_copy(const Vector<String> &p_src, const String &p_dst_dir);
-	void _do_move(const Vector<String> &p_src, const String &p_dst_dir);
+	bool _do_move(const Vector<String> &p_src, const String &p_dst_dir);
 	void _do_delete(const Vector<String> &p_src);
 	void _do_rename(const String &p_src, const String &p_new_name);
 	void _do_mkdir(const String &p_name);
 	void _do_extract(const String &p_zip);
+	void _do_extract_zip(const String &p_zip);
+	void _do_extract_tar(const String &p_path, bool p_gzipped);
 	void _do_import(const Vector<String> &p_src, const String &p_dst_dir);
 	void _show_info(const Vector<String> &p_src);
 	void _scan_if_inside_project(const String &p_path);
@@ -83,8 +99,17 @@ class McpFileManager : public PanelContainer {
 	void _on_info();
 	void _on_confirm();
 	void _on_input_confirm();
+	void _show_preview(const String &p_path);
+	void _on_preview_zoom(float p_factor);
+	void _on_preview_zoom(float p_factor);
 	bool _compare(const Variant &p_a, const Variant &p_b, int p_mode);
 	void _apply_button_icons();
+
+	AcceptDialog *preview_dlg = nullptr;
+	TextureRect *preview_tr = nullptr;
+	Label *preview_zoom_label = nullptr;
+	Vector2 preview_base = Vector2.ZERO;
+	float preview_zoom = 1.0f;
 
 protected:
 	static void _bind_methods();
@@ -108,9 +133,15 @@ class McpFileManagerPlugin : public EditorPlugin {
 protected:
 	void _enter_tree();
 	void _exit_tree();
+	void _unhandled_key_input(const Ref<InputEvent> &p_event) override;
 
 public:
-	McpFileManagerPlugin() {}
+	static McpFileManagerPlugin *get_singleton() { return singleton; }
+	static void open_file_manager() { if (singleton) singleton->_open_manager(); }
+	McpFileManagerPlugin();
+	~McpFileManagerPlugin();
+private:
+	static McpFileManagerPlugin *singleton;
 };
 
 #endif // TOOLS_ENABLED

@@ -2,6 +2,7 @@
 
 #include "fm_dock.h"
 
+#include "core/input/input_event.h"
 #include "core/io/dir_access.h"
 #include "core/io/file_access.h"
 #include "core/io/zip_io.h"
@@ -12,6 +13,7 @@
 #include "core/string/ustring.h"
 #include "editor/editor_interface.h"
 #include "editor/editor_node.h"
+#include "editor/settings/editor_settings.h"
 #include "editor/file_system/editor_file_system.h"
 #include "editor/gui/editor_toaster.h"
 #include "editor/gui/progress_dialog.h"
@@ -77,28 +79,26 @@ void McpFileManager::_build_ui() {
 
 	HBoxContainer *nav = memnew(HBoxContainer);
 	root->add_child(nav);
-	Button *back = memnew(Button);
-	back->set_tooltip_text("Kembali");
-	back->connect("pressed", callable_mp(this, &McpFileManager::_go_up));
-	nav->add_child(back);
-	back->set_name("NavBack");
-	Button *home = memnew(Button);
-	home->set_tooltip_text("Proyek aktif");
-	home->connect("pressed", callable_mp(this, &McpFileManager::_on_home));
-	nav->add_child(home);
-	home->set_name("NavHome");
-	Button *refresh = memnew(Button);
-	refresh->set_tooltip_text("Segarkan");
-	refresh->connect("pressed", callable_mp(this, &McpFileManager::_refresh));
-	nav->add_child(refresh);
-	refresh->set_name("NavRefresh");
+	btn_back = memnew(Button);
+	btn_back->set_tooltip_text("Kembali");
+	btn_back->connect("pressed", callable_mp(this, &McpFileManager::_go_up));
+	nav->add_child(btn_back);
+	btn_back->set_name("NavBack");
+	btn_home = memnew(Button);
+	btn_home->set_tooltip_text("Proyek aktif");
+	btn_home->connect("pressed", callable_mp(this, &McpFileManager::_on_home));
+	nav->add_child(btn_home);
+	btn_home->set_name("NavHome");
+	btn_refresh = memnew(Button);
+	btn_refresh->set_tooltip_text("Segarkan");
+	btn_refresh->connect("pressed", callable_mp(this, &McpFileManager::_refresh));
+	nav->add_child(btn_refresh);
+	btn_refresh->set_name("NavRefresh");
 	ScrollContainer *crumb_scroll = memnew(ScrollContainer);
 	crumb_scroll->set_vertical_scroll_mode(ScrollContainer::SCROLL_MODE_DISABLED);
 	crumb_scroll->set_h_scroll(true);
 	crumb_scroll->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	nav->add_child(crumb_scroll);
-	crumb_bar = memnew(HBoxContainer);
-	crumb_scroll->add_child(crumb_bar);
 	crumb_bar = memnew(HBoxContainer);
 	crumb_scroll->add_child(crumb_bar);
 
@@ -136,21 +136,31 @@ void McpFileManager::_build_ui() {
 		{ "ActRename", "Ganti nama" }, { "ActDelete", "Hapus" }, { "ActMkdir", "Folder" },
 		{ "ActExtract", "Ekstrak" }, { "ActImport", "Import" }, { "ActInfo", "Info" },
 	};
-	for (const auto &b : btns) {
+	for (int i = 0; i < 9; i++) {
 		Button *btn = memnew(Button);
-		btn->set_tooltip_text(b[1]);
-		btn->set_name(b[0]);
+		btn->set_tooltip_text(btns[i][1]);
+		btn->set_name(btns[i][0]);
 		actions->add_child(btn);
 	}
-	actions->get_child(0)->connect("pressed", callable_mp(this, &McpFileManager::_on_copy));
-	actions->get_child(1)->connect("pressed", callable_mp(this, &McpFileManager::_on_cut));
-	actions->get_child(2)->connect("pressed", callable_mp(this, &McpFileManager::_on_paste));
-	actions->get_child(3)->connect("pressed", callable_mp(this, &McpFileManager::_on_rename));
-	actions->get_child(4)->connect("pressed", callable_mp(this, &McpFileManager::_on_delete));
-	actions->get_child(5)->connect("pressed", callable_mp(this, &McpFileManager::_on_mkdir));
-	actions->get_child(6)->connect("pressed", callable_mp(this, &McpFileManager::_on_extract));
-	actions->get_child(7)->connect("pressed", callable_mp(this, &McpFileManager::_on_import));
-	actions->get_child(8)->connect("pressed", callable_mp(this, &McpFileManager::_on_info));
+	btn_copy = Object::cast_to<Button>(actions->get_child(0));
+	btn_cut = Object::cast_to<Button>(actions->get_child(1));
+	btn_paste = Object::cast_to<Button>(actions->get_child(2));
+	btn_rename = Object::cast_to<Button>(actions->get_child(3));
+	btn_delete = Object::cast_to<Button>(actions->get_child(4));
+	btn_mkdir = Object::cast_to<Button>(actions->get_child(5));
+	btn_extract = Object::cast_to<Button>(actions->get_child(6));
+	btn_import = Object::cast_to<Button>(actions->get_child(7));
+	btn_info = Object::cast_to<Button>(actions->get_child(8));
+
+	btn_copy->connect("pressed", callable_mp(this, &McpFileManager::_on_copy));
+	btn_cut->connect("pressed", callable_mp(this, &McpFileManager::_on_cut));
+	btn_paste->connect("pressed", callable_mp(this, &McpFileManager::_on_paste));
+	btn_rename->connect("pressed", callable_mp(this, &McpFileManager::_on_rename));
+	btn_delete->connect("pressed", callable_mp(this, &McpFileManager::_on_delete));
+	btn_mkdir->connect("pressed", callable_mp(this, &McpFileManager::_on_mkdir));
+	btn_extract->connect("pressed", callable_mp(this, &McpFileManager::_on_extract));
+	btn_import->connect("pressed", callable_mp(this, &McpFileManager::_on_import));
+	btn_info->connect("pressed", callable_mp(this, &McpFileManager::_on_info));
 
 	status_label = memnew(Label);
 	status_label->set_clip_text(true);
@@ -170,6 +180,9 @@ void McpFileManager::_build_ui() {
 
 void McpFileManager::_build_shortcuts() {
 	// Dibangun ulang tiap refresh shortcut (dipanggil sekali dari konstruktor).
+	for (int i = shortcut_bar->get_child_count() - 1; i >= 0; i--) {
+		shortcut_bar->get_child(i)->queue_free();
+	}
 	for (const String &s : shortcuts) {
 		Button *b = memnew(Button);
 		b->set_text(s.get_file().is_empty() ? s : s.get_file());
@@ -263,6 +276,10 @@ void McpFileManager::_refresh() {
 		int idx = list->add_item(label, get_theme_icon(_icon_for(String(r["name"]), bool(r["dir"])), "EditorIcons"));
 		list->set_item_metadata(idx, String(r["path"]));
 		list->set_item_tooltip(idx, String(r["path"]));
+		// Feedback visual untuk item yang di-cut: redupkan.
+		if (clipboard_cut && clipboard.has(String(r["path"]))) {
+			list->set_item_custom_fg_color(idx, Color(1, 1, 1, 0.45));
+		}
 	}
 	status_label->set_text(vformat("%s — %d item", current_dir, rows.size()));
 	_apply_button_icons();
@@ -330,37 +347,21 @@ String McpFileManager::_icon_for(const String &p_name, bool p_dir) const {
 }
 
 void McpFileManager::_apply_button_icons() {
-	// Use the node names we set during creation
-	Node *nav = get_node_or_null(NodePath("VBox/HBox"));
-	if (nav) {
-		Button *b = Object::cast_to<Button>(nav->get_node_or_null(NodePath("NavBack")));
-		if (b) b->set_button_icon(get_theme_icon("fm_back", "EditorIcons"));
-		b = Object::cast_to<Button>(nav->get_node_or_null(NodePath("NavHome")));
-		if (b) b->set_button_icon(get_theme_icon("fm_home", "EditorIcons"));
-		b = Object::cast_to<Button>(nav->get_node_or_null(NodePath("NavRefresh")));
-		if (b) b->set_button_icon(get_theme_icon("fm_refresh", "EditorIcons"));
-	}
-	Node *actions = get_node_or_null(NodePath("VBox/HBox2"));
-	if (actions) {
-		Button *b = Object::cast_to<Button>(actions->get_child(0));
-		if (b) b->set_button_icon(get_theme_icon("fm_copy", "EditorIcons"));
-		b = Object::cast_to<Button>(actions->get_child(1));
-		if (b) b->set_button_icon(get_theme_icon("fm_cut", "EditorIcons"));
-		b = Object::cast_to<Button>(actions->get_child(2));
-		if (b) b->set_button_icon(get_theme_icon("fm_paste", "EditorIcons"));
-		b = Object::cast_to<Button>(actions->get_child(3));
-		if (b) b->set_button_icon(get_theme_icon("fm_rename", "EditorIcons"));
-		b = Object::cast_to<Button>(actions->get_child(4));
-		if (b) b->set_button_icon(get_theme_icon("fm_delete", "EditorIcons"));
-		b = Object::cast_to<Button>(actions->get_child(5));
-		if (b) b->set_button_icon(get_theme_icon("fm_newfolder", "EditorIcons"));
-		b = Object::cast_to<Button>(actions->get_child(6));
-		if (b) b->set_button_icon(get_theme_icon("fm_extract", "EditorIcons"));
-		b = Object::cast_to<Button>(actions->get_child(7));
-		if (b) b->set_button_icon(get_theme_icon("fm_import", "EditorIcons"));
-		b = Object::cast_to<Button>(actions->get_child(8));
-		if (b) b->set_button_icon(get_theme_icon("fm_info", "EditorIcons"));
-	}
+	// Nav buttons
+	if (btn_back) btn_back->set_button_icon(get_theme_icon("fm_back", "EditorIcons"));
+	if (btn_home) btn_home->set_button_icon(get_theme_icon("fm_home", "EditorIcons"));
+	if (btn_refresh) btn_refresh->set_button_icon(get_theme_icon("fm_refresh", "EditorIcons"));
+
+	// Action buttons
+	if (btn_copy) btn_copy->set_button_icon(get_theme_icon("fm_copy", "EditorIcons"));
+	if (btn_cut) btn_cut->set_button_icon(get_theme_icon("fm_cut", "EditorIcons"));
+	if (btn_paste) btn_paste->set_button_icon(get_theme_icon("fm_paste", "EditorIcons"));
+	if (btn_rename) btn_rename->set_button_icon(get_theme_icon("fm_rename", "EditorIcons"));
+	if (btn_delete) btn_delete->set_button_icon(get_theme_icon("fm_delete", "EditorIcons"));
+	if (btn_mkdir) btn_mkdir->set_button_icon(get_theme_icon("fm_newfolder", "EditorIcons"));
+	if (btn_extract) btn_extract->set_button_icon(get_theme_icon("fm_extract", "EditorIcons"));
+	if (btn_import) btn_import->set_button_icon(get_theme_icon("fm_import", "EditorIcons"));
+	if (btn_info) btn_info->set_button_icon(get_theme_icon("fm_info", "EditorIcons"));
 }
 
 Vector<String> McpFileManager::_selected_paths() const {
@@ -389,26 +390,10 @@ void McpFileManager::_on_item_activated(int p_idx) {
 	}
 	String ext = path.get_extension().to_lower();
 	if (ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "webp" || ext == "bmp" || ext == "gif") {
-		Ref<Image> img;
-		img.instantiate();
-		if (img->load(path) == OK) {
-			AcceptDialog *dlg = memnew(AcceptDialog);
-			dlg->set_title(path.get_file());
-			TextureRect *tr = memnew(TextureRect);
-			tr->set_expand_mode(TextureRect::EXPAND_IGNORE_SIZE);
-			tr->set_stretch_mode(TextureRect::STRETCH_KEEP_ASPECT_CENTERED);
-			tr->set_custom_minimum_size(Vector2(420, 320));
-			Ref<ImageTexture> tex;
-			tex.instantiate();
-			tex->set_image(img);
-			tr->set_texture(tex);
-			dlg->add_child(tr);
-			add_child(dlg);
-			dlg->popup_centered();
-		}
+		_show_preview(path);
 		return;
 	}
-	if (ext == "zip") {
+	if (ext == "zip" || ext == "tar" || ext == "gz" || ext == "tgz" || ext == "rar") {
 		_do_extract(path);
 		return;
 	}
@@ -446,8 +431,12 @@ void McpFileManager::_on_paste() {
 		return;
 	}
 	if (clipboard_cut) {
-		_do_move(clipboard, current_dir);
-		clipboard.clear();
+		// Simpan copy clipboard dulu, baru clear kalau move berhasil
+		Vector<String> to_move = clipboard;
+		if (_do_move(to_move, current_dir)) {
+			clipboard.clear();
+			clipboard_cut = false;
+		}
 	} else {
 		_do_copy(clipboard, current_dir);
 	}
@@ -457,11 +446,16 @@ void McpFileManager::_on_paste() {
 
 void McpFileManager::_on_rename() {
 	Vector<String> sel = _selected_paths();
+	if (sel.is_empty()) {
+		status_label->set_text("Tidak ada item yang dipilih.");
+		return;
+	}
 	if (sel.size() != 1) {
 		status_label->set_text("Pilih tepat 1 item untuk ganti nama.");
 		return;
 	}
-	input_action = "rename:" + sel[0];
+	// Gunakan delimiter | yang jarang ada di nama file
+	input_action = "rename|" + sel[0];
 	input_edit->set_text(sel[0].get_file());
 	input_dialog->set_title("Ganti nama");
 	input_dialog->popup_centered(Vector2i(420, 140));
@@ -491,11 +485,69 @@ void McpFileManager::_on_mkdir() {
 
 void McpFileManager::_on_extract() {
 	Vector<String> sel = _selected_paths();
-	if (sel.size() != 1 || sel[0].get_extension().to_lower() != "zip") {
-		status_label->set_text("Pilih tepat 1 file .zip.");
+	if (sel.size() != 1) {
+		status_label->set_text("Pilih tepat 1 file arsip.");
+		return;
+	}
+	String ext = sel[0].get_extension().to_lower();
+	if (ext != "zip" && ext != "tar" && ext != "gz" && ext != "tgz" && ext != "rar") {
+		status_label->set_text("Bukan file arsip (zip/tar/gz/tgz/rar).");
 		return;
 	}
 	_do_extract(sel[0]);
+}
+
+void McpFileManager::_show_preview(const String &p_path) {
+	Ref<Image> img;
+	img.instantiate();
+	if (img->load(p_path) != OK) {
+		status_label->set_text("Gagal membuka gambar.");
+		return;
+	}
+	preview_base = Vector2(img->get_width(), img->get_height());
+	preview_zoom = 1.0f;
+	if (preview_dlg == nullptr) {
+		preview_dlg = memnew(AcceptDialog);
+		preview_dlg->set_title(p_path.get_file());
+		VBoxContainer *vb = memnew(VBoxContainer);
+		preview_dlg->add_child(vb);
+		HBoxContainer *zb = memnew(HBoxContainer);
+		zb->set_alignment(BoxContainer::ALIGNMENT_CENTER);
+		vb->add_child(zb);
+		Button *zin = memnew(Button);
+		zin->set_text("+");
+		zin->connect("pressed", callable_mp(this, &McpFileManager::_on_preview_zoom).bind(1.25f));
+		zb->add_child(zin);
+		preview_zoom_label = memnew(Label);
+		preview_zoom_label->set_text("100%");
+		zb->add_child(preview_zoom_label);
+		Button *zout = memnew(Button);
+		zout->set_text("-");
+		zout->connect("pressed", callable_mp(this, &McpFileManager::_on_preview_zoom).bind(0.8f));
+		zb->add_child(zout);
+		preview_tr = memnew(TextureRect);
+		preview_tr->set_expand_mode(TextureRect::EXPAND_IGNORE_SIZE);
+		preview_tr->set_stretch_mode(TextureRect::STRETCH_KEEP_ASPECT_CENTERED);
+		vb->add_child(preview_tr);
+		add_child(preview_dlg);
+	}
+	Ref<ImageTexture> tex;
+	tex.instantiate();
+	tex->set_image(img);
+	preview_tr->set_texture(tex);
+	_on_preview_zoom(1.0f);
+	preview_dlg->set_title(p_path.get_file());
+	preview_dlg->popup_centered();
+}
+
+void McpFileManager::_on_preview_zoom(float p_factor) {
+	preview_zoom = CLAMP(preview_zoom * p_factor, 0.1f, 8.0f);
+	if (preview_tr) {
+		preview_tr->set_custom_minimum_size(preview_base * preview_zoom);
+	}
+	if (preview_zoom_label) {
+		preview_zoom_label->set_text(vformat("%d%%", int(preview_zoom * 100.0f)));
+	}
 }
 
 void McpFileManager::_on_import() {
@@ -528,8 +580,8 @@ void McpFileManager::_on_input_confirm() {
 	if (v.is_empty()) {
 		return;
 	}
-	if (input_action.begins_with("rename:")) {
-		_do_rename(input_action.trim_prefix("rename:"), v);
+	if (input_action.begins_with("rename|")) {
+		_do_rename(input_action.trim_prefix("rename|"), v);
 	} else if (input_action == "mkdir") {
 		_do_mkdir(v);
 	} else if (input_action == "import") {
@@ -556,7 +608,7 @@ void McpFileManager::_do_copy(const Vector<String> &p_src, const String &p_dst_d
 	EditorToaster::get_singleton()->popup_str(vformat("File manager: disalin %d item.", count));
 }
 
-void McpFileManager::_do_move(const Vector<String> &p_src, const String &p_dst_dir) {
+bool McpFileManager::_do_move(const Vector<String> &p_src, const String &p_dst_dir) {
 	for (const String &s : p_src) {
 		String dst = p_dst_dir.rstrip("/") + "/" + s.get_file();
 		if (dst == s) {
@@ -567,12 +619,13 @@ void McpFileManager::_do_move(const Vector<String> &p_src, const String &p_dst_d
 			int count = 0;
 			if (_copy_recursive(s, dst, count) != OK || _remove_recursive(s) != OK) {
 				status_label->set_text("Gagal memindah: " + s);
-				return;
+				return false;
 			}
 		}
 	}
 	status_label->set_text("Dipindah.");
 	EditorToaster::get_singleton()->popup_str("File manager: dipindah.");
+	return true;
 }
 
 void McpFileManager::_do_delete(const Vector<String> &p_src) {
@@ -647,7 +700,232 @@ Error McpFileManager::_remove_recursive(const String &p_path) {
 	return DirAccess::remove_absolute(p_path);
 }
 
-void McpFileManager::_do_extract(const String &p_zip) {
+Error McpFileManager::_remove_recursive(const String &p_path) {
+	if (DirAccess::exists(p_path)) {
+		Ref<DirAccess> d = DirAccess::open(p_path);
+		if (d.is_null()) {
+			return ERR_CANT_OPEN;
+		}
+		d->list_dir_begin();
+		String fn = d->get_next();
+		while (!fn.is_empty()) {
+			Error err = this->_remove_recursive(p_path.rstrip("/") + "/" + fn);
+			if (err != OK) {
+				return err;
+			}
+			fn = d->get_next();
+		}
+		d->list_dir_end();
+	}
+	return DirAccess::remove_absolute(p_path);
+}
+
+// Dispatcher ekstrak: zip / tar / tar.gz+tgz native, rar ditolak baik-baik.
+void McpFileManager::_do_extract(const String &p_path) {
+	String ext = p_path.get_extension().to_lower();
+	if (ext == "zip") {
+		_do_extract_zip(p_path);
+	} else if (ext == "tar") {
+		_do_extract_tar(p_path, false);
+	} else if (ext == "gz" || ext == "tgz") {
+		_do_extract_tar(p_path, true);
+	} else if (ext == "rar") {
+		status_label->set_text("Format .rar tidak didukung. Gunakan tool eksternal.");
+		EditorToaster::get_singleton()->popup_str("Format .rar tidak didukung di Godot.");
+	} else {
+		status_label->set_text("Format arsip tidak dikenali: " + ext);
+	}
+}
+
+// Gunzip streaming ke file temp (hemat RAM untuk arsip besar).
+static Error _fm_gunzip_to_temp(const String &p_src, const String &p_tmp) {
+	z_stream zs = {};
+	if (inflateInit2(&zs, 15 + 32) != Z_OK) {
+		return ERR_CANT_OPEN;
+	}
+	Ref<FileAccess> fin = FileAccess::open(p_src, FileAccess::READ);
+	if (fin.is_null()) {
+		inflateEnd(&zs);
+		return ERR_CANT_OPEN;
+	}
+	Ref<FileAccess> fout = FileAccess::open(p_tmp, FileAccess::WRITE);
+	if (fout.is_null()) {
+		inflateEnd(&zs);
+		return ERR_CANT_CREATE;
+	}
+	const int CHUNK = 65536;
+	Vector<uint8_t> inb;
+	inb.resize(CHUNK);
+	Vector<uint8_t> outb;
+	outb.resize(CHUNK);
+	bool stream_end = false;
+	Error err = OK;
+	while (!stream_end && fin->get_position() < (uint64_t)fin->get_length()) {
+		uint64_t left = fin->get_length() - fin->get_position();
+		int want = (int)MIN<uint64_t>(left, CHUNK);
+		if (fin->get_buffer(inb.ptrw(), want) != want) {
+			err = ERR_FILE_CORRUPT;
+			break;
+		}
+		zs.next_in = inb.ptr();
+		zs.avail_in = want;
+		do {
+			zs.next_out = outb.ptr();
+			zs.avail_out = CHUNK;
+			int ret = inflate(&zs, Z_NO_FLUSH);
+			if (ret == Z_STREAM_ERROR || (ret != Z_OK && ret != Z_STREAM_END && ret != Z_BUF_ERROR)) {
+				err = ERR_FILE_CORRUPT;
+				break;
+			}
+			int have = CHUNK - zs.avail_out;
+			if (have > 0) {
+				fout->store_buffer(outb.ptr(), have);
+			}
+			if (ret == Z_STREAM_END) {
+				stream_end = true;
+				break;
+			}
+			if (ret == Z_BUF_ERROR && zs.avail_in == 0) {
+				break;
+			}
+		} while (zs.avail_out == 0);
+		if (err != OK) {
+			break;
+		}
+	}
+	inflateEnd(&zs);
+	return err;
+}
+
+// Parse header TAR USTAR: nama + ukuran (oktal). Return false kalau blok akhir.
+static bool _fm_tar_header(const uint8_t *p_hdr, String &r_name, uint64_t &r_size) {
+	bool empty = true;
+	for (int i = 0; i < 512; i++) {
+		if (p_hdr[i] != 0) {
+			empty = false;
+			break;
+		}
+	}
+	if (empty) {
+		return false;
+	}
+	char name_buf[101] = {};
+	memcpy(name_buf, p_hdr, 100);
+	r_name = String::utf8(name_buf).strip_edges();
+	if (p_hdr[257] == 'u' && p_hdr[258] == 's' && p_hdr[259] == 't' && p_hdr[260] == 'a' && p_hdr[261] == 'r') {
+		char pre_buf[156] = {};
+		memcpy(pre_buf, p_hdr + 345, 155);
+		String pre = String::utf8(pre_buf).strip_edges();
+		if (!pre.is_empty() && !r_name.is_empty()) {
+			r_name = pre + "/" + r_name;
+		}
+	}
+	char size_buf[13] = {};
+	memcpy(size_buf, p_hdr + 124, 12);
+	r_size = strtoull(size_buf, nullptr, 8);
+	return true;
+}
+
+void McpFileManager::_do_extract_tar(const String &p_path, bool p_gzipped) {
+	String tar_path = p_path;
+	String tmp_path;
+	if (p_gzipped) {
+		tmp_path = p_path.get_base_dir().rstrip("/") + "/.fm_tmp.tar";
+		if (_fm_gunzip_to_temp(p_path, tmp_path) != OK) {
+			status_label->set_text("Gagal decompress gzip.");
+			DirAccess::remove_absolute(tmp_path);
+			return;
+		}
+		tar_path = tmp_path;
+	}
+	Ref<FileAccess> f = FileAccess::open(tar_path, FileAccess::READ);
+	if (f.is_null()) {
+		status_label->set_text("Gagal membuka arsip tar.");
+		if (!tmp_path.is_empty()) {
+			DirAccess::remove_absolute(tmp_path);
+		}
+		return;
+	}
+	String dest = p_path.get_base_dir().rstrip("/") + "/" + p_path.get_file().get_basename().split(".")[0] + "/";
+	fm_make_dir_recursive(dest);
+	// Pass 1: hitung file untuk progress real.
+	const int64_t TBLOCK = 512;
+	Vector<uint8_t> hdr;
+	hdr.resize(TBLOCK);
+	int total = 0;
+	while (f->get_position() + TBLOCK <= (uint64_t)f->get_length()) {
+		if (f->get_buffer(hdr.ptrw(), TBLOCK) != TBLOCK) {
+			break;
+		}
+		String nm;
+		uint64_t sz = 0;
+		if (!_fm_tar_header(hdr.ptr(), nm, sz)) {
+			break;
+		}
+		if (!nm.ends_with("/") && nm.find("..") < 0) {
+			total++;
+		}
+		int64_t skip = ((int64_t(sz) + TBLOCK - 1) / TBLOCK) * TBLOCK;
+		f->seek(f->get_position() + skip);
+	}
+	f->seek(0);
+	ProgressDialog::get_singleton()->add_task("fm_extract", "Mengekstrak tar", total);
+	// Pass 2: tulis file streaming 64KB.
+	const int CHUNK = 65536;
+	Vector<uint8_t> chunk;
+	chunk.resize(CHUNK);
+	int done = 0;
+	while (f->get_position() + TBLOCK <= (uint64_t)f->get_length()) {
+		if (f->get_buffer(hdr.ptrw(), TBLOCK) != TBLOCK) {
+			break;
+		}
+		String nm;
+		uint64_t sz = 0;
+		if (!_fm_tar_header(hdr.ptr(), nm, sz)) {
+			break;
+		}
+		bool skip_entry = nm.ends_with("/") || nm.find("..") >= 0 || nm.is_absolute_path() || nm.is_empty();
+		String out = dest + nm;
+		Ref<FileAccess> fout;
+		if (!skip_entry) {
+			fm_make_dir_recursive(out.get_base_dir());
+			fout = FileAccess::open(out, FileAccess::WRITE);
+			if (fout.is_null()) {
+				skip_entry = true;
+			}
+		}
+		uint64_t left = sz;
+		while (left > 0) {
+			int want = (int)MIN<uint64_t>(left, CHUNK);
+			int got = f->get_buffer(chunk.ptrw(), want);
+			if (got <= 0) {
+				break;
+			}
+			if (!skip_entry && fout.is_valid()) {
+				fout->store_buffer(chunk.ptr(), got);
+			}
+			left -= got;
+		}
+		int64_t pad = (((int64_t(sz) + TBLOCK - 1) / TBLOCK) * TBLOCK) - (int64_t)sz;
+		if (pad > 0) {
+			f->seek(f->get_position() + pad);
+		}
+		if (!skip_entry) {
+			done++;
+			ProgressDialog::get_singleton()->task_step("fm_extract", nm, total > 0 ? (done * 100 / total) : 0, true);
+		}
+	}
+	ProgressDialog::get_singleton()->end_task("fm_extract");
+	if (!tmp_path.is_empty()) {
+		DirAccess::remove_absolute(tmp_path);
+	}
+	status_label->set_text("Diekstrak ke: " + dest);
+	EditorToaster::get_singleton()->popup_str("File manager: ekstrak selesai.");
+	_scan_if_inside_project(dest);
+	_refresh();
+}
+
+void McpFileManager::_do_extract_zip(const String &p_zip) {
 	Ref<FileAccess> io_fa;
 	zlib_filefunc_def io = zipio_create_io(&io_fa);
 	unzFile pkg = unzOpen2(p_zip.utf8().get_data(), &io);
@@ -657,7 +935,26 @@ void McpFileManager::_do_extract(const String &p_zip) {
 	}
 	String dest = p_zip.get_base_dir().rstrip("/") + "/" + p_zip.get_file().get_basename() + "/";
 	fm_make_dir_recursive(dest);
-	ProgressDialog::get_singleton()->add_task("fm_extract", "Mengekstrak zip", 100);
+
+	// Hitung total file dulu untuk progress real
+	int total_files = 0;
+	unzFile pkg_count = unzOpen2(p_zip.utf8().get_data(), &io);
+	if (pkg_count) {
+		int ret = unzGoToFirstFile(pkg_count);
+		while (ret == UNZ_OK) {
+			unz_file_info info;
+			char fname[4096];
+			unzGetCurrentFileInfo(pkg_count, &info, fname, 4096, nullptr, 0, nullptr, 0);
+			String rel = String::utf8(fname);
+			if (!rel.is_absolute_path() && rel.find("..") < 0 && !rel.ends_with("/")) {
+				total_files++;
+			}
+			ret = unzGoToNextFile(pkg_count);
+		}
+		unzClose(pkg_count);
+	}
+
+	ProgressDialog::get_singleton()->add_task("fm_extract", "Mengekstrak zip", total_files);
 	int done = 0;
 	int ret = unzGoToFirstFile(pkg);
 	while (ret == UNZ_OK) {
@@ -668,21 +965,28 @@ void McpFileManager::_do_extract(const String &p_zip) {
 		// Tolak zip-slip: path absolut atau keluar folder tujuan.
 		if (!rel.is_absolute_path() && rel.find("..") < 0 && !rel.ends_with("/")) {
 			if (unzOpenCurrentFile(pkg) == UNZ_OK) {
-				Vector<uint8_t> buf;
-				buf.resize(info.uncompressed_size);
-				if (unzReadCurrentFile(pkg, buf.ptrw(), info.uncompressed_size) >= 0) {
-					String out = dest + rel;
-					fm_make_dir_recursive(out.get_base_dir());
-					Ref<FileAccess> f = FileAccess::open(out, FileAccess::WRITE);
-					if (f.is_valid()) {
-						f->store_buffer(buf);
+				// Streaming write: chunk 64KB untuk anti-OOM
+				const int CHUNK_SIZE = 65536;
+				Vector<uint8_t> chunk;
+				chunk.resize(CHUNK_SIZE);
+				String out = dest + rel;
+				fm_make_dir_recursive(out.get_base_dir());
+				Ref<FileAccess> f = FileAccess::open(out, FileAccess::WRITE);
+				if (f.is_valid()) {
+					int remaining = info.uncompressed_size;
+					while (remaining > 0) {
+						int to_read = MIN(CHUNK_SIZE, remaining);
+						int read = unzReadCurrentFile(pkg, chunk.ptrw(), to_read);
+						if (read <= 0) break;
+						f->store_buffer(chunk.ptr(), read);
+						remaining -= read;
 					}
 				}
 				unzCloseCurrentFile(pkg);
 			}
 		}
 		done++;
-		ProgressDialog::get_singleton()->task_step("fm_extract", rel, done % 100, true);
+		ProgressDialog::get_singleton()->task_step("fm_extract", rel, (total_files > 0) ? (done * 100 / total_files) : 0, true);
 		ret = unzGoToNextFile(pkg);
 	}
 	unzClose(pkg);
@@ -742,14 +1046,61 @@ void McpFileManager::_show_info(const Vector<String> &p_src) {
 void McpFileManager::_bind_methods() {
 }
 
+McpFileManagerPlugin *McpFileManagerPlugin::singleton = nullptr;
+
+McpFileManagerPlugin::McpFileManagerPlugin() {
+	singleton = this;
+}
+
+McpFileManagerPlugin::~McpFileManagerPlugin() {
+	if (singleton == this) {
+		singleton = nullptr;
+	}
+}
+
 void McpFileManagerPlugin::_enter_tree() {
 	add_tool_menu_item("File Manager", callable_mp(this, &McpFileManagerPlugin::_open_manager));
+	// Shortcut default Ctrl+Shift+F, tercatat di EditorSettings agar bisa diubah user.
+	EditorSettings *es = EditorSettings::get_singleton();
+	if (es && !es->has_setting("shortcuts/mcp_file_manager")) {
+		Ref<InputEventKey> k;
+		k.instantiate();
+		k->set_pressed(true);
+		k->set_keycode(Key::F);
+		k->set_ctrl_pressed(true);
+		k->set_shift_pressed(true);
+		es->set_initial_value("shortcuts/mcp_file_manager", k, false);
+	}
+	set_process_unhandled_key_input(true);
 }
 
 void McpFileManagerPlugin::_exit_tree() {
+	set_process_unhandled_key_input(false);
 	remove_tool_menu_item("File Manager");
 	if (win) {
 		win->hide();
+	}
+}
+
+void McpFileManagerPlugin::_unhandled_key_input(const Ref<InputEvent> &p_event) {
+	EditorSettings *es = EditorSettings::get_singleton();
+	if (es == nullptr || p_event.is_null()) {
+		return;
+	}
+	if (!es->has_setting("shortcuts/mcp_file_manager")) {
+		return;
+	}
+	Ref<InputEventKey> want = es->get_setting("shortcuts/mcp_file_manager");
+	Ref<InputEventKey> got = p_event;
+	if (want.is_null() || got.is_null() || !got->is_pressed() || got->is_echo()) {
+		return;
+	}
+	if (got->get_keycode() == want->get_keycode() &&
+			got->is_ctrl_pressed() == want->is_ctrl_pressed() &&
+			got->is_shift_pressed() == want->is_shift_pressed() &&
+			got->is_alt_pressed() == want->is_alt_pressed()) {
+		_open_manager();
+		get_viewport()->set_input_as_handled();
 	}
 }
 
