@@ -105,7 +105,7 @@ VBoxContainer *McpFileManager::_make_action(const char *p_icon, const char *p_la
 
 void McpFileManager::_on_action_input(const Ref<InputEvent> &p_event, const Callable &p_action) {
 	Ref<InputEventMouseButton> mb = p_event;
-	if (mb.is_valid() && mb->is_pressed() && mb->get_button_index() == MOUSE_BUTTON_LEFT) {
+	if (mb.is_valid() && mb->is_pressed() && mb->get_button_index() == MouseButton::MOUSE_BUTTON_LEFT) {
 		p_action.call();
 		accept_event();
 	}
