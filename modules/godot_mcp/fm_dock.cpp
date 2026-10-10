@@ -1069,14 +1069,22 @@ void McpFileManager::_bind_methods() {
 }
 
 McpFileManagerPlugin *McpFileManagerPlugin::singleton = nullptr;
+Vector<McpFileManagerPlugin *> McpFileManagerPlugin::instances;
 
 McpFileManagerPlugin::McpFileManagerPlugin() {
+	instances.push_back(this);
 	singleton = this;
 }
 
 McpFileManagerPlugin::~McpFileManagerPlugin() {
+	for (int i = instances.size() - 1; i >= 0; i--) {
+		if (instances[i] == this) {
+			instances.remove_at(i);
+			break;
+		}
+	}
 	if (singleton == this) {
-		singleton = nullptr;
+		singleton = instances.is_empty() ? nullptr : instances[instances.size() - 1];
 	}
 }
 

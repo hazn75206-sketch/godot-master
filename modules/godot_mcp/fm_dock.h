@@ -15,6 +15,7 @@
 #include "scene/gui/panel_container.h"
 #include "scene/gui/texture_rect.h"
 #include "scene/gui/tree.h"
+#include "core/templates/vector.h"
 
 // Tree 4 kolom yang bisa di-seret keluar sebagai file (format drop standar
 // FileSystem dock + flag fm_copy agar selalu COPY, bukan MOVE).
@@ -131,7 +132,19 @@ class McpFileManagerPlugin : public EditorPlugin {
 public:
 	void refresh_toolbar_icon();
 	static McpFileManagerPlugin *get_singleton() { return singleton; }
-	static void open_file_manager() { if (singleton) singleton->_open_manager(); }
+	static void open_file_manager() {
+		// The Inspector dock can outlive/rebuild editor plugins. Resolve a live
+		// instance at click time instead of silently relying on a stale singleton.
+		for (int i = instances.size() - 1; i >= 0; i--) {
+			McpFileManagerPlugin *plugin = instances[i];
+			if (plugin && plugin->is_inside_tree()) {
+				singleton = plugin;
+				plugin->_open_manager();
+				return;
+			}
+		}
+		WARN_PRINT("File Manager: no active plugin instance found for Inspector button.");
+	}
 	McpFileManagerPlugin();
 	~McpFileManagerPlugin();
 
@@ -142,6 +155,7 @@ protected:
 
 private:
 	static McpFileManagerPlugin *singleton;
+	static Vector<McpFileManagerPlugin *> instances;
 };
 
 #endif // TOOLS_ENABLED
