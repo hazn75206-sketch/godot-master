@@ -700,26 +700,6 @@ Error McpFileManager::_remove_recursive(const String &p_path) {
 	return DirAccess::remove_absolute(p_path);
 }
 
-Error McpFileManager::_remove_recursive(const String &p_path) {
-	if (DirAccess::exists(p_path)) {
-		Ref<DirAccess> d = DirAccess::open(p_path);
-		if (d.is_null()) {
-			return ERR_CANT_OPEN;
-		}
-		d->list_dir_begin();
-		String fn = d->get_next();
-		while (!fn.is_empty()) {
-			Error err = this->_remove_recursive(p_path.rstrip("/") + "/" + fn);
-			if (err != OK) {
-				return err;
-			}
-			fn = d->get_next();
-		}
-		d->list_dir_end();
-	}
-	return DirAccess::remove_absolute(p_path);
-}
-
 // Dispatcher ekstrak: zip / tar / tar.gz+tgz native, rar ditolak baik-baik.
 void McpFileManager::_do_extract(const String &p_path) {
 	String ext = p_path.get_extension().to_lower();
@@ -767,10 +747,10 @@ static Error _fm_gunzip_to_temp(const String &p_src, const String &p_tmp) {
 			err = ERR_FILE_CORRUPT;
 			break;
 		}
-		zs.next_in = inb.ptr();
+		zs.next_in = (Bytef *)inb.ptr();
 		zs.avail_in = want;
 		do {
-			zs.next_out = outb.ptr();
+			zs.next_out = (Bytef *)outb.ptr();
 			zs.avail_out = CHUNK;
 			int ret = inflate(&zs, Z_NO_FLUSH);
 			if (ret == Z_STREAM_ERROR || (ret != Z_OK && ret != Z_STREAM_END && ret != Z_BUF_ERROR)) {

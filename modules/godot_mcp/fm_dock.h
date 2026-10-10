@@ -4,6 +4,8 @@
 #ifdef TOOLS_ENABLED
 
 #include "editor/plugins/editor_plugin.h"
+#include "core/input/input_event.h"
+#include "core/math/vector2.h"
 #include "scene/gui/box_container.h"
 #include "scene/gui/button.h"
 #include "scene/gui/dialogs.h"
@@ -101,7 +103,6 @@ class McpFileManager : public PanelContainer {
 	void _on_input_confirm();
 	void _show_preview(const String &p_path);
 	void _on_preview_zoom(float p_factor);
-	void _on_preview_zoom(float p_factor);
 	bool _compare(const Variant &p_a, const Variant &p_b, int p_mode);
 	void _apply_button_icons();
 
@@ -133,7 +134,7 @@ class McpFileManagerPlugin : public EditorPlugin {
 protected:
 	void _enter_tree();
 	void _exit_tree();
-	void _unhandled_key_input(const Ref<InputEvent> &p_event) override;
+	void _unhandled_key_input(const Ref<InputEvent> &p_event);
 
 public:
 	static McpFileManagerPlugin *get_singleton() { return singleton; }
