@@ -352,10 +352,14 @@ static Variant _tool_read_file(const Dictionary &p_args) {
 	if (f.is_null()) {
 		return mcp_tool_ret_error(vformat("Tidak dapat membuka file: %s", path));
 	}
-	String content = f->get_as_text();
 	if (p_args.get("binary", false)) {
-		Vector<uint8_t> buf = FileAccess::get_file_as_bytes(path);
-		if (buf.is_empty()) {
+		uint64_t len = f->get_length();
+		if (len == 0) {
+			return mcp_tool_ret_error(vformat("File kosong: %s", path));
+		}
+		Vector<uint8_t> buf;
+		buf.resize(len);
+		if (f->get_buffer(buf.ptrw(), len) != (int64_t)len) {
 			return mcp_tool_ret_error(vformat("Gagal membaca biner: %s", path));
 		}
 		Dictionary out;
@@ -364,6 +368,7 @@ static Variant _tool_read_file(const Dictionary &p_args) {
 		out["base64"] = CryptoCore::b64_encode_str(buf.ptr(), buf.size());
 		return mcp_tool_ret_json(out);
 	}
+	String content = f->get_as_text();
 	if (p_args.get("json", false)) {
 		Variant parsed = JSON::parse_string(content);
 		if (parsed.get_type() != Variant::NIL) {

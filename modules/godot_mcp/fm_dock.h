@@ -131,6 +131,7 @@ class McpFileManagerPlugin : public EditorPlugin {
 	Button *toolbar_btn = nullptr;
 
 	void _open_manager();
+	void refresh_toolbar_icon();
 
 protected:
 	void _enter_tree();

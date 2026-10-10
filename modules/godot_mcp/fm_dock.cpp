@@ -273,7 +273,12 @@ void McpFileManager::_refresh() {
 		if (!bool(r["dir"])) {
 			label += "  (" + _fmt_size(uint64_t(r["size"])) + ")";
 		}
-		int idx = list->add_item(label, get_theme_icon(_icon_for(String(r["name"]), bool(r["dir"])), "EditorIcons"));
+		String icon_name = _icon_for(String(r["name"]), bool(r["dir"]));
+		Ref<Texture2D> icon;
+		if (has_theme_icon(icon_name, "EditorIcons")) {
+			icon = get_theme_icon(icon_name, "EditorIcons");
+		}
+		int idx = list->add_item(label, icon);
 		list->set_item_metadata(idx, String(r["path"]));
 		list->set_item_tooltip(idx, String(r["path"]));
 		// Feedback visual untuk item yang di-cut: redupkan.
@@ -347,21 +352,31 @@ String McpFileManager::_icon_for(const String &p_name, bool p_dir) const {
 }
 
 void McpFileManager::_apply_button_icons() {
-	// Nav buttons
-	if (btn_back) btn_back->set_button_icon(get_theme_icon("fm_back", "EditorIcons"));
-	if (btn_home) btn_home->set_button_icon(get_theme_icon("fm_home", "EditorIcons"));
-	if (btn_refresh) btn_refresh->set_button_icon(get_theme_icon("fm_refresh", "EditorIcons"));
+	// Nav buttons (guard: theme bisa belum siap saat awal).
+	if (btn_back && has_theme_icon("fm_back", "EditorIcons")) btn_back->set_button_icon(get_theme_icon("fm_back", "EditorIcons"));
+	if (btn_home && has_theme_icon("fm_home", "EditorIcons")) btn_home->set_button_icon(get_theme_icon("fm_home", "EditorIcons"));
+	if (btn_refresh && has_theme_icon("fm_refresh", "EditorIcons")) btn_refresh->set_button_icon(get_theme_icon("fm_refresh", "EditorIcons"));
 
 	// Action buttons
-	if (btn_copy) btn_copy->set_button_icon(get_theme_icon("fm_copy", "EditorIcons"));
-	if (btn_cut) btn_cut->set_button_icon(get_theme_icon("fm_cut", "EditorIcons"));
-	if (btn_paste) btn_paste->set_button_icon(get_theme_icon("fm_paste", "EditorIcons"));
-	if (btn_rename) btn_rename->set_button_icon(get_theme_icon("fm_rename", "EditorIcons"));
-	if (btn_delete) btn_delete->set_button_icon(get_theme_icon("fm_delete", "EditorIcons"));
-	if (btn_mkdir) btn_mkdir->set_button_icon(get_theme_icon("fm_newfolder", "EditorIcons"));
-	if (btn_extract) btn_extract->set_button_icon(get_theme_icon("fm_extract", "EditorIcons"));
-	if (btn_import) btn_import->set_button_icon(get_theme_icon("fm_import", "EditorIcons"));
-	if (btn_info) btn_info->set_button_icon(get_theme_icon("fm_info", "EditorIcons"));
+	if (btn_copy && has_theme_icon("fm_copy", "EditorIcons")) btn_copy->set_button_icon(get_theme_icon("fm_copy", "EditorIcons"));
+	if (btn_cut && has_theme_icon("fm_cut", "EditorIcons")) btn_cut->set_button_icon(get_theme_icon("fm_cut", "EditorIcons"));
+	if (btn_paste && has_theme_icon("fm_paste", "EditorIcons")) btn_paste->set_button_icon(get_theme_icon("fm_paste", "EditorIcons"));
+	if (btn_rename && has_theme_icon("fm_rename", "EditorIcons")) btn_rename->set_button_icon(get_theme_icon("fm_rename", "EditorIcons"));
+	if (btn_delete && has_theme_icon("fm_delete", "EditorIcons")) btn_delete->set_button_icon(get_theme_icon("fm_delete", "EditorIcons"));
+	if (btn_mkdir && has_theme_icon("fm_newfolder", "EditorIcons")) btn_mkdir->set_button_icon(get_theme_icon("fm_newfolder", "EditorIcons"));
+	if (btn_extract && has_theme_icon("fm_extract", "EditorIcons")) btn_extract->set_button_icon(get_theme_icon("fm_extract", "EditorIcons"));
+	if (btn_import && has_theme_icon("fm_import", "EditorIcons")) btn_import->set_button_icon(get_theme_icon("fm_import", "EditorIcons"));
+	if (btn_info && has_theme_icon("fm_info", "EditorIcons")) btn_info->set_button_icon(get_theme_icon("fm_info", "EditorIcons"));
+
+	// Icon item list: jangan tempel null (bikin tampilan rusak).
+	// (Diterapkan di _refresh via _icon_for + has_theme_icon.)
+
+	// Segarkan juga icon tombol toolbar (bisa null kalau theme belum siap
+	// saat plugin _enter_tree; refresh jalan belakangan sehingga aman).
+	McpFileManagerPlugin *plug = McpFileManagerPlugin::get_singleton();
+	if (plug) {
+		plug->refresh_toolbar_icon();
+	}
 }
 
 Vector<String> McpFileManager::_selected_paths() const {
@@ -1044,21 +1059,9 @@ void McpFileManagerPlugin::_enter_tree() {
 	toolbar_btn = memnew(Button);
 	toolbar_btn->set_tooltip_text("File Manager (Ctrl+Shift+F)");
 	toolbar_btn->set_flat(true);
-	toolbar_btn->set_text("FM");
 	toolbar_btn->connect("pressed", callable_mp(this, &McpFileManagerPlugin::_open_manager));
-	Control *base = EditorInterface::get_singleton()->get_base_control();
-	if (base && base->has_theme_icon("fm_dir", "EditorIcons")) {
-		toolbar_btn->set_button_icon(base->get_theme_icon("fm_dir", "EditorIcons"));
-	}
-	// Kunci warna icon ke putih di semua state: cegah tint merah/warna lain
-	// dari theme induk (terbukti terjadi di header Inspector).
-	toolbar_btn->add_theme_color_override("icon_normal_color", Color(1, 1, 1));
-	toolbar_btn->add_theme_color_override("icon_hover_color", Color(1, 1, 1));
-	toolbar_btn->add_theme_color_override("icon_pressed_color", Color(1, 1, 1));
-	toolbar_btn->add_theme_color_override("icon_focus_color", Color(1, 1, 1));
-	toolbar_btn->add_theme_color_override("icon_disabled_color", Color(1, 1, 1, 0.5));
-	toolbar_btn->add_theme_color_override("font_color", Color(1, 1, 1));
 	add_control_to_container(CONTAINER_TOOLBAR, toolbar_btn);
+	refresh_toolbar_icon();
 	// Shortcut default Ctrl+Shift+F, tercatat di EditorSettings agar bisa diubah user.
 	EditorSettings *es = EditorSettings::get_singleton();
 	if (es && !es->has_setting("shortcuts/mcp_file_manager")) {
@@ -1105,6 +1108,23 @@ void McpFileManagerPlugin::_unhandled_key_input(const Ref<InputEvent> &p_event) 
 		_open_manager();
 		get_viewport()->set_input_as_handled();
 	}
+}
+
+void McpFileManagerPlugin::refresh_toolbar_icon() {
+	if (!toolbar_btn) {
+		return;
+	}
+	toolbar_btn->set_text("FM");
+	Control *base = EditorInterface::get_singleton()->get_base_control();
+	if (base && base->has_theme_icon("fm_dir", "EditorIcons")) {
+		toolbar_btn->set_button_icon(base->get_theme_icon("fm_dir", "EditorIcons"));
+	}
+	toolbar_btn->add_theme_color_override("icon_normal_color", Color(1, 1, 1));
+	toolbar_btn->add_theme_color_override("icon_hover_color", Color(1, 1, 1));
+	toolbar_btn->add_theme_color_override("icon_pressed_color", Color(1, 1, 1));
+	toolbar_btn->add_theme_color_override("icon_focus_color", Color(1, 1, 1));
+	toolbar_btn->add_theme_color_override("icon_disabled_color", Color(1, 1, 1, 0.5));
+	toolbar_btn->add_theme_color_override("font_color", Color(1, 1, 1));
 }
 
 void McpFileManagerPlugin::_open_manager() {
