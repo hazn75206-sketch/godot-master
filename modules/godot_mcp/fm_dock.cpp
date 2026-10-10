@@ -36,20 +36,21 @@ static Error fm_make_dir_recursive(const String &p_path) {
 	return dir->make_dir_recursive(p_path);
 }
 
-// ---------------------------------------------------------------- McpFileList
+// ---------------------------------------------------------------- McpFileTree
 
-Variant McpFileList::get_drag_data(const Point2 &p_point) {
-	int idx = get_item_at_position(p_point, true);
-	if (idx < 0 || !is_selected(idx)) {
-		return Variant();
-	}
-	Vector<int> sel = get_selected_items();
-	if (sel.is_empty()) {
+Variant McpFileTree::get_drag_data(const Point2 &p_point) {
+	TreeItem *hit = get_item_at_position(p_point);
+	if (!hit || !hit->is_selected(0)) {
 		return Variant();
 	}
 	Array files;
-	for (int i : sel) {
-		files.append(get_item_metadata(i));
+	TreeItem *it = get_next_selected(nullptr);
+	while (it) {
+		files.append(it->get_metadata(0));
+		it = get_next_selected(it);
+	}
+	if (files.is_empty()) {
+		return Variant();
 	}
 	Dictionary dd;
 	dd["type"] = "files_and_dirs";
@@ -71,6 +72,74 @@ McpFileManager::McpFileManager() {
 	shortcuts.push_back(ProjectSettings::get_singleton()->globalize_path("res://"));
 	_build_shortcuts();
 	open_dir("/storage/emulated/0/Documents");
+}
+
+VBoxContainer *McpFileManager::_make_action(const char *p_icon, const char *p_label, const char *p_tip, void (McpFileManager::*p_method)()) {
+	VBoxContainer *vb = memnew(VBoxContainer);
+	vb->set_alignment(BoxContainer::ALIGNMENT_CENTER);
+	vb->set_mouse_filter(Control::MOUSE_FILTER_STOP);
+	vb->set_mouse_default_cursor_shape(Control::CURSOR_POINTING_HAND);
+	vb->set_custom_minimum_size(Vector2(66, 54));
+	vb->set_tooltip_text(p_tip);
+	TextureRect *tr = memnew(TextureRect);
+	tr->set_custom_minimum_size(Vector2(28, 28));
+	tr->set_expand_mode(TextureRect::EXPAND_IGNORE_SIZE);
+	tr->set_stretch_mode(TextureRect::STRETCH_KEEP_ASPECT_CENTERED);
+	tr->set_mouse_filter(Control::MOUSE_FILTER_IGNORE);
+	tr->set_size_flags_horizontal(Control::SIZE_SHRINK_CENTER);
+	if (has_theme_icon(p_icon, "EditorIcons")) {
+		tr->set_texture(get_theme_icon(p_icon, "EditorIcons"));
+	}
+	vb->add_child(tr);
+	action_icons.append(tr);
+	action_icon_names.append(p_icon);
+	Label *lb = memnew(Label);
+	lb->set_text(p_label);
+	lb->set_horizontal_alignment(HORIZONTAL_ALIGNMENT_CENTER);
+	lb->add_theme_font_size_override("font_size", 11);
+	lb->set_mouse_filter(Control::MOUSE_FILTER_IGNORE);
+	vb->add_child(lb);
+	vb->connect("gui_input", callable_mp(this, &McpFileManager::_on_action_input).bind(callable_mp(this, p_method)));
+	return vb;
+}
+
+void McpFileManager::_on_action_input(const Ref<InputEvent> &p_event, const Callable &p_action) {
+	Ref<InputEventMouseButton> mb = p_event;
+	if (mb.is_valid() && mb->is_pressed() && mb->get_button_index() == MOUSE_BUTTON_LEFT) {
+		p_action.call();
+		accept_event();
+	}
+}
+
+void McpFileManager::_on_open_selected() {
+	Vector<String> sel = _selected_paths();
+	if (!sel.is_empty()) {
+		_open_path(sel[0]);
+	}
+}
+
+void McpFileManager::_on_item_activated() {
+	TreeItem *it = list->get_next_selected(nullptr);
+	if (it) {
+		_open_path(String(it->get_metadata(0)));
+	}
+}
+
+void McpFileManager::_open_path(const String &path) {
+	if (DirAccess::exists(path)) {
+		_go_to(path);
+		return;
+	}
+	String ext = path.get_extension().to_lower();
+	if (ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "webp" || ext == "bmp" || ext == "gif") {
+		_show_preview(path);
+		return;
+	}
+	if (ext == "zip" || ext == "tar" || ext == "gz" || ext == "tgz" || ext == "rar") {
+		_do_extract(path);
+		return;
+	}
+	OS::get_singleton()->shell_open(path);
 }
 
 void McpFileManager::_build_ui() {
@@ -120,47 +189,45 @@ void McpFileManager::_build_ui() {
 	shortcut_bar = memnew(HBoxContainer);
 	root->add_child(shortcut_bar);
 
-	list = memnew(McpFileList);
-	list->set_select_mode(ItemList::SELECT_MULTI);
+	list = memnew(McpFileTree);
+	list->set_columns(4);
+	list->set_column_titles_visible(true);
+	list->set_column_title(0, "Nama");
+	list->set_column_title(1, "Ukuran");
+	list->set_column_title(2, "Tipe");
+	list->set_column_title(3, "Tanggal Diubah");
+	list->set_column_expand(0, true);
+	list->set_column_custom_minimum_width(1, 90);
+	list->set_column_custom_minimum_width(2, 110);
+	list->set_column_custom_minimum_width(3, 150);
+	list->set_hide_root(true);
+	list->set_select_mode(Tree::SELECT_MULTI);
 	list->set_allow_rmb_select(true);
-	list->set_fixed_icon_size(Vector2i(20, 20));
 	list->set_v_size_flags(Control::SIZE_EXPAND_FILL);
 	list->connect("item_activated", callable_mp(this, &McpFileManager::_on_item_activated));
 	root->add_child(list);
 
 	HBoxContainer *actions = memnew(HBoxContainer);
 	actions->set_alignment(BoxContainer::ALIGNMENT_CENTER);
+	actions->add_theme_constant_override("separation", 6);
 	root->add_child(actions);
-	const char *btns[][2] = {
-		{ "ActCopy", "Salin" }, { "ActCut", "Potong" }, { "ActPaste", "Tempel" },
-		{ "ActRename", "Ganti nama" }, { "ActDelete", "Hapus" }, { "ActMkdir", "Folder" },
-		{ "ActExtract", "Ekstrak" }, { "ActImport", "Import" }, { "ActInfo", "Info" },
-	};
-	for (int i = 0; i < 9; i++) {
-		Button *btn = memnew(Button);
-		btn->set_tooltip_text(btns[i][1]);
-		btn->set_name(btns[i][0]);
-		actions->add_child(btn);
+	actions->add_child(_make_action("fm_open", "Buka", "Buka", &McpFileManager::_on_open_selected));
+	actions->add_child(_make_action("fm_copy", "Salin", "Salin", &McpFileManager::_on_copy));
+	actions->add_child(_make_action("fm_cut", "Potong", "Potong", &McpFileManager::_on_cut));
+	actions->add_child(_make_action("fm_paste", "Tempel", "Tempel", &McpFileManager::_on_paste));
+	actions->add_child(_make_action("fm_rename", "Ganti Nama", "Ganti nama", &McpFileManager::_on_rename));
+	actions->add_child(_make_action("fm_delete", "Hapus", "Hapus", &McpFileManager::_on_delete));
+	actions->add_child(_make_action("fm_add", "Folder", "Folder baru", &McpFileManager::_on_mkdir));
+	actions->add_child(_make_action("fm_extract", "Ekstrak ZIP", "Ekstrak arsip", &McpFileManager::_on_extract));
+	actions->add_child(_make_action("fm_info", "Info", "Properti", &McpFileManager::_on_info));
+	Button *refresh_act = memnew(Button);
+	refresh_act->set_tooltip_text("Segarkan");
+	refresh_act->set_flat(true);
+	if (has_theme_icon("fm_refresh", "EditorIcons")) {
+		refresh_act->set_button_icon(get_theme_icon("fm_refresh", "EditorIcons"));
 	}
-	btn_copy = Object::cast_to<Button>(actions->get_child(0));
-	btn_cut = Object::cast_to<Button>(actions->get_child(1));
-	btn_paste = Object::cast_to<Button>(actions->get_child(2));
-	btn_rename = Object::cast_to<Button>(actions->get_child(3));
-	btn_delete = Object::cast_to<Button>(actions->get_child(4));
-	btn_mkdir = Object::cast_to<Button>(actions->get_child(5));
-	btn_extract = Object::cast_to<Button>(actions->get_child(6));
-	btn_import = Object::cast_to<Button>(actions->get_child(7));
-	btn_info = Object::cast_to<Button>(actions->get_child(8));
-
-	btn_copy->connect("pressed", callable_mp(this, &McpFileManager::_on_copy));
-	btn_cut->connect("pressed", callable_mp(this, &McpFileManager::_on_cut));
-	btn_paste->connect("pressed", callable_mp(this, &McpFileManager::_on_paste));
-	btn_rename->connect("pressed", callable_mp(this, &McpFileManager::_on_rename));
-	btn_delete->connect("pressed", callable_mp(this, &McpFileManager::_on_delete));
-	btn_mkdir->connect("pressed", callable_mp(this, &McpFileManager::_on_mkdir));
-	btn_extract->connect("pressed", callable_mp(this, &McpFileManager::_on_extract));
-	btn_import->connect("pressed", callable_mp(this, &McpFileManager::_on_import));
-	btn_info->connect("pressed", callable_mp(this, &McpFileManager::_on_info));
+	refresh_act->connect("pressed", callable_mp(this, &McpFileManager::_refresh));
+	actions->add_child(refresh_act);
 
 	status_label = memnew(Label);
 	status_label->set_clip_text(true);
@@ -235,6 +302,7 @@ void McpFileManager::_refresh() {
 	}
 	// Icon tombol nav + aksi (theme EditorIcons, hasil build modul).
 	list->clear();
+	TreeItem *troot = list->create_item();
 	Ref<DirAccess> d = DirAccess::open(current_dir);
 	if (d.is_null()) {
 		status_label->set_text("Tidak bisa dibuka (izin?): " + current_dir);
@@ -269,24 +337,35 @@ void McpFileManager::_refresh() {
 	rows.sort_custom(callable_mp(this, &McpFileManager::_compare).bind(sort_mode));
 	for (int i = 0; i < rows.size(); i++) {
 		Dictionary r = rows[i];
-		String label = String(r["name"]);
-		if (!bool(r["dir"])) {
-			label += "  (" + _fmt_size(uint64_t(r["size"])) + ")";
-		}
-		String icon_name = _icon_for(String(r["name"]), bool(r["dir"]));
-		Ref<Texture2D> icon;
+		bool is_dir = bool(r["dir"]);
+		TreeItem *it = list->create_item(troot);
+		it->set_text(0, String(r["name"]));
+		it->set_text(1, is_dir ? String() : _fmt_size(uint64_t(r["size"])));
+		String ext = String(r["name"]).get_extension().to_lower();
+		it->set_text(2, is_dir ? "Folder" : (ext.is_empty() ? "File" : ext.to_upper()));
+		uint64_t mt = uint64_t(r["mtime"]);
+		it->set_text(3, (!is_dir && mt > 0) ? Time::get_singleton()->get_datetime_string_from_unix_time(int64_t(mt)).left(16) : String());
+		String icon_name = _icon_for(String(r["name"]), is_dir);
 		if (has_theme_icon(icon_name, "EditorIcons")) {
-			icon = get_theme_icon(icon_name, "EditorIcons");
+			it->set_icon(0, get_theme_icon(icon_name, "EditorIcons"));
+			if (is_dir) {
+				it->set_icon_modulate(0, Color(1.0, 0.84, 0.35));
+			} else if (ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "webp" || ext == "svg" || ext == "bmp" || ext == "gif") {
+				it->set_icon_modulate(0, Color(0.55, 0.8, 1.0));
+			} else if (ext == "zip" || ext == "rar" || ext == "7z" || ext == "tar" || ext == "gz" || ext == "apk") {
+				it->set_icon_modulate(0, Color(1.0, 0.65, 0.35));
+			}
 		}
-		int idx = list->add_item(label, icon);
-		list->set_item_metadata(idx, String(r["path"]));
-		list->set_item_tooltip(idx, String(r["path"]));
+		it->set_metadata(0, String(r["path"]));
+		it->set_tooltip_text(0, String(r["path"]));
 		// Feedback visual untuk item yang di-cut: redupkan.
 		if (clipboard_cut && clipboard.has(String(r["path"]))) {
-			list->set_item_custom_fg_color(idx, Color(1, 1, 1, 0.45));
+			for (int c = 0; c < 4; c++) {
+				it->set_custom_color(c, Color(1, 1, 1, 0.45));
+			}
 		}
 	}
-	status_label->set_text(vformat("%s — %d item", current_dir, rows.size()));
+	status_label->set_text(vformat("%d item — %s", rows.size(), current_dir));
 	_apply_button_icons();
 }
 
@@ -357,16 +436,13 @@ void McpFileManager::_apply_button_icons() {
 	if (btn_home && has_theme_icon("fm_home", "EditorIcons")) btn_home->set_button_icon(get_theme_icon("fm_home", "EditorIcons"));
 	if (btn_refresh && has_theme_icon("fm_refresh", "EditorIcons")) btn_refresh->set_button_icon(get_theme_icon("fm_refresh", "EditorIcons"));
 
-	// Action buttons
-	if (btn_copy && has_theme_icon("fm_copy", "EditorIcons")) btn_copy->set_button_icon(get_theme_icon("fm_copy", "EditorIcons"));
-	if (btn_cut && has_theme_icon("fm_cut", "EditorIcons")) btn_cut->set_button_icon(get_theme_icon("fm_cut", "EditorIcons"));
-	if (btn_paste && has_theme_icon("fm_paste", "EditorIcons")) btn_paste->set_button_icon(get_theme_icon("fm_paste", "EditorIcons"));
-	if (btn_rename && has_theme_icon("fm_rename", "EditorIcons")) btn_rename->set_button_icon(get_theme_icon("fm_rename", "EditorIcons"));
-	if (btn_delete && has_theme_icon("fm_delete", "EditorIcons")) btn_delete->set_button_icon(get_theme_icon("fm_delete", "EditorIcons"));
-	if (btn_mkdir && has_theme_icon("fm_newfolder", "EditorIcons")) btn_mkdir->set_button_icon(get_theme_icon("fm_newfolder", "EditorIcons"));
-	if (btn_extract && has_theme_icon("fm_extract", "EditorIcons")) btn_extract->set_button_icon(get_theme_icon("fm_extract", "EditorIcons"));
-	if (btn_import && has_theme_icon("fm_import", "EditorIcons")) btn_import->set_button_icon(get_theme_icon("fm_import", "EditorIcons"));
-	if (btn_info && has_theme_icon("fm_info", "EditorIcons")) btn_info->set_button_icon(get_theme_icon("fm_info", "EditorIcons"));
+	// Action VBox icons (dibuat di _make_action; guard theme belum siap).
+	for (int i = 0; i < action_icons.size() && i < action_icon_names.size(); i++) {
+		TextureRect *tr = action_icons[i];
+		if (tr && has_theme_icon(action_icon_names[i], "EditorIcons")) {
+			tr->set_texture(get_theme_icon(action_icon_names[i], "EditorIcons"));
+		}
+	}
 
 	// Icon item list: jangan tempel null (bikin tampilan rusak).
 	// (Diterapkan di _refresh via _icon_for + has_theme_icon.)
@@ -381,8 +457,10 @@ void McpFileManager::_apply_button_icons() {
 
 Vector<String> McpFileManager::_selected_paths() const {
 	Vector<String> out;
-	for (int i : list->get_selected_items()) {
-		out.append(String(list->get_item_metadata(i)));
+	TreeItem *it = list->get_next_selected(nullptr);
+	while (it) {
+		out.append(String(it->get_metadata(0)));
+		it = list->get_next_selected(it);
 	}
 	return out;
 }
@@ -395,24 +473,6 @@ void McpFileManager::_scan_if_inside_project(const String &p_path) {
 			efs->scan_changes();
 		}
 	}
-}
-
-void McpFileManager::_on_item_activated(int p_idx) {
-	String path = String(list->get_item_metadata(p_idx));
-	if (DirAccess::exists(path)) {
-		_go_to(path);
-		return;
-	}
-	String ext = path.get_extension().to_lower();
-	if (ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "webp" || ext == "bmp" || ext == "gif") {
-		_show_preview(path);
-		return;
-	}
-	if (ext == "zip" || ext == "tar" || ext == "gz" || ext == "tgz" || ext == "rar") {
-		_do_extract(path);
-		return;
-	}
-	OS::get_singleton()->shell_open(path);
 }
 
 void McpFileManager::_on_search_changed(const String &p_text) {
@@ -565,18 +625,6 @@ void McpFileManager::_on_preview_zoom(float p_factor) {
 	}
 }
 
-void McpFileManager::_on_import() {
-	Vector<String> sel = _selected_paths();
-	if (sel.is_empty()) {
-		return;
-	}
-	input_action = "import";
-	input_edit->set_text("res://fm_import/");
-	input_dialog->set_title("Import ke proyek (folder tujuan)");
-	input_dialog->popup_centered(Vector2i(460, 140));
-	input_edit->grab_focus();
-}
-
 void McpFileManager::_on_info() {
 	_show_info(_selected_paths());
 }
@@ -599,8 +647,6 @@ void McpFileManager::_on_input_confirm() {
 		_do_rename(input_action.trim_prefix("rename|"), v);
 	} else if (input_action == "mkdir") {
 		_do_mkdir(v);
-	} else if (input_action == "import") {
-		_do_import(_selected_paths(), v);
 	}
 	input_action = "";
 	_refresh();
@@ -992,25 +1038,6 @@ void McpFileManager::_do_extract_zip(const String &p_zip) {
 	_refresh();
 }
 
-void McpFileManager::_do_import(const Vector<String> &p_src, const String &p_dst_dir) {
-	String dest = ProjectSettings::get_singleton()->globalize_path(p_dst_dir);
-	if (dest.is_empty()) {
-		status_label->set_text("Folder tujuan tidak valid.");
-		return;
-	}
-	fm_make_dir_recursive(dest);
-	int count = 0;
-	for (const String &s : p_src) {
-		if (this->_copy_recursive(s, dest.rstrip("/") + "/" + s.get_file(), count) != OK) {
-			status_label->set_text("Gagal import: " + s);
-			return;
-		}
-	}
-	EditorFileSystem::get_singleton()->scan_changes();
-	status_label->set_text(vformat("Diimport %d item ke %s", count, p_dst_dir));
-	EditorToaster::get_singleton()->popup_str("File manager: import selesai, filesystem dipindai.");
-}
-
 void McpFileManager::_show_info(const Vector<String> &p_src) {
 	if (p_src.is_empty()) {
 		status_label->set_text("Pilih minimal 1 item.");
@@ -1138,7 +1165,8 @@ void McpFileManagerPlugin::_open_manager() {
 		print_line("FM: buat Window baru");
 		win = memnew(Window);
 		win->set_title("File Manager");
-		win->set_min_size(Vector2i(480, 400));
+		win->set_min_size(Vector2i(640, 420));
+		win->connect("close_requested", callable_mp(win, &Window::hide));
 		fm = memnew(McpFileManager);
 		fm->set_anchors_preset(Control::PRESET_FULL_RECT);
 		win->add_child(fm);
@@ -1149,7 +1177,7 @@ void McpFileManagerPlugin::_open_manager() {
 		win->hide();
 	} else {
 		print_line("FM: tampilkan window");
-		win->popup_centered(Vector2i(680, 480));
+		win->popup_centered(Vector2i(1000, 620));
 		fm->open_dir(fm->get_current_dir().is_empty() ? "/storage/emulated/0/Documents" : fm->get_current_dir());
 	}
 }
