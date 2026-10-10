@@ -1044,11 +1044,20 @@ void McpFileManagerPlugin::_enter_tree() {
 	toolbar_btn = memnew(Button);
 	toolbar_btn->set_tooltip_text("File Manager (Ctrl+Shift+F)");
 	toolbar_btn->set_flat(true);
+	toolbar_btn->set_text("FM");
 	toolbar_btn->connect("pressed", callable_mp(this, &McpFileManagerPlugin::_open_manager));
 	Control *base = EditorInterface::get_singleton()->get_base_control();
 	if (base && base->has_theme_icon("fm_dir", "EditorIcons")) {
 		toolbar_btn->set_button_icon(base->get_theme_icon("fm_dir", "EditorIcons"));
 	}
+	// Kunci warna icon ke putih di semua state: cegah tint merah/warna lain
+	// dari theme induk (terbukti terjadi di header Inspector).
+	toolbar_btn->add_theme_color_override("icon_normal_color", Color(1, 1, 1));
+	toolbar_btn->add_theme_color_override("icon_hover_color", Color(1, 1, 1));
+	toolbar_btn->add_theme_color_override("icon_pressed_color", Color(1, 1, 1));
+	toolbar_btn->add_theme_color_override("icon_focus_color", Color(1, 1, 1));
+	toolbar_btn->add_theme_color_override("icon_disabled_color", Color(1, 1, 1, 0.5));
+	toolbar_btn->add_theme_color_override("font_color", Color(1, 1, 1));
 	add_control_to_container(CONTAINER_TOOLBAR, toolbar_btn);
 	// Shortcut default Ctrl+Shift+F, tercatat di EditorSettings agar bisa diubah user.
 	EditorSettings *es = EditorSettings::get_singleton();
@@ -1099,11 +1108,14 @@ void McpFileManagerPlugin::_unhandled_key_input(const Ref<InputEvent> &p_event) 
 }
 
 void McpFileManagerPlugin::_open_manager() {
+	print_line("FM: _open_manager dipanggil");
 	EditorInterface *ei = EditorInterface::get_singleton();
 	if (!ei) {
+		print_line("FM: GAGAL - EditorInterface null");
 		return;
 	}
 	if (!win) {
+		print_line("FM: buat Window baru");
 		win = memnew(Window);
 		win->set_title("File Manager");
 		win->set_min_size(Vector2i(480, 400));
@@ -1113,8 +1125,10 @@ void McpFileManagerPlugin::_open_manager() {
 		ei->get_base_control()->add_child(win);
 	}
 	if (win->is_visible()) {
+		print_line("FM: sembunyikan window");
 		win->hide();
 	} else {
+		print_line("FM: tampilkan window");
 		win->popup_centered(Vector2i(680, 480));
 		fm->open_dir(fm->get_current_dir().is_empty() ? "/storage/emulated/0/Documents" : fm->get_current_dir());
 	}

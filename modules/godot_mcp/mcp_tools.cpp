@@ -13,6 +13,7 @@
 #include "core/input/input.h"
 #include "core/io/dir_access.h"
 #include "core/io/file_access.h"
+#include "core/io/marshalls.h"
 #include "core/io/resource_loader.h"
 #include "editor/editor_undo_redo_manager.h"
 #include "core/os/os.h"
@@ -353,6 +354,17 @@ static Variant _tool_read_file(const Dictionary &p_args) {
 		return mcp_tool_ret_error(vformat("Tidak dapat membuka file: %s", path));
 	}
 	String content = f->get_as_text();
+	if (p_args.get("binary", false)) {
+		Vector<uint8_t> buf = FileAccess::get_file_as_bytes(path);
+		if (buf.is_empty()) {
+			return mcp_tool_ret_error(vformat("Gagal membaca biner: %s", path));
+		}
+		Dictionary out;
+		out["path"] = path;
+		out["size"] = buf.size();
+		out["base64"] = Marshalls::raw_to_base64(buf.ptr(), buf.size());
+		return mcp_tool_ret_json(out);
+	}
 	if (p_args.get("json", false)) {
 		Variant parsed = JSON::parse_string(content);
 		if (parsed.get_type() != Variant::NIL) {
@@ -1188,7 +1200,16 @@ static Variant _tool_screenshot(const Dictionary &p_args) {
 	String actual = "editor";
 	Ref<Image> img;
 	bool playing = ei->is_playing_scene();
-	if ((source == "game" || source == "game2d") && playing) {
+	if (source == "window") {
+		// Jendela utama editor (seluruh UI: toolbar, dock, dialog). Untuk
+		// screenshot UI seperti tombol toolbar; pakai max_width agar ringan.
+		Control *base = ei->get_base_control();
+		Window *mw = base ? base->get_window() : nullptr;
+		if (mw) {
+			img = mw->get_texture()->get_image();
+			actual = "window";
+		}
+	} else if ((source == "game" || source == "game2d") && playing) {
 		Window *w = SceneTree::get_singleton()->get_root();
 		if (w) {
 			img = w->get_texture()->get_image();
@@ -1810,8 +1831,15 @@ static Variant _tool_execute_script(const Dictionary &p_args) {
 	Ref<GDScript> scr;
 	scr.instantiate();
 	scr->set_source_code(src);
-	if (scr->reload() != OK) {
-		return mcp_tool_ret_error("Script gagal dikompilasi. Periksa sintaks (indentasi otomatis 1 tab).");
+	Error err = scr->reload(true);
+	if (err != OK) {
+		String numbered;
+		int ln = 0;
+		for (const String &line : src.split("\n")) {
+			numbered += vformat("%4d: %s\n", ++ln, line);
+		}
+		String kind = err == ERR_PARSE_ERROR ? "parse (sintaks)" : "kompilasi";
+		return mcp_tool_ret_error(vformat("Script gagal %s (err %d). Kode satu baris pakai ';', multi-baris tanpa indentasi awal (otomatis 1 tab), akhiri dengan 'return ...' untuk nilai balik.\n--- source ---\n%s", kind, (int)err, numbered));
 	}
 	Ref<RefCounted> inst(Object::cast_to<RefCounted>(ClassDB::instantiate("RefCounted")));
 	if (!inst.is_valid()) {
@@ -1826,7 +1854,7 @@ static Variant _tool_execute_script(const Dictionary &p_args) {
 	return mcp_tool_ret_text(out.is_empty() ? "(tidak ada return)" : out);
 }
 
-static void _glob_walk(const String &p_dir, const String &p_pattern, Array &r_out, int p_limit) {
+static void _glob_walk(const String &p_base, const String &p_dir, const String &p_pattern, Array &r_out, int p_limit) {
 	if ((int)r_out.size() >= p_limit) {
 		return;
 	}
@@ -1841,9 +1869,9 @@ static void _glob_walk(const String &p_dir, const String &p_pattern, Array &r_ou
 			String full = p_dir.path_join(f);
 			if (da->current_is_dir()) {
 				if (f != ".godot" && f != ".git") {
-					_glob_walk(full, p_pattern, r_out, p_limit);
+					_glob_walk(p_base, full, p_pattern, r_out, p_limit);
 				}
-			} else if (f.match(p_pattern) || full.match(p_pattern)) {
+			} else if (f.match(p_pattern) || full.match(p_pattern) || full.trim_prefix(p_base).trim_prefix("/").match(p_pattern)) {
 				r_out.append(full);
 			}
 		}
@@ -1859,7 +1887,7 @@ static Variant _tool_glob(const Dictionary &p_args) {
 	}
 	String base = String(p_args.get("path", String("res://")));
 	Array out;
-	_glob_walk(base, pattern, out, 500);
+	_glob_walk(base, base, pattern, out, 500);
 	Dictionary d;
 	d["pattern"] = pattern;
 	d["count"] = out.size();
@@ -2122,7 +2150,7 @@ void mcp_register_tools(McpServer *p_server) {
 
 	// Filesystem tools.
 	p_server->register_tool("filesystem_manage", "Operasi filesystem. Args: op (read|write|list|remove|move), path, content, pattern, recursive, dest, confirm.", _schema(true, Vector<String>{ "op" }), _tool_filesystem_manage);
-	p_server->register_tool("read_file", "Alias dari filesystem_manage op=read. Args: path, json.", _schema(true, Vector<String>{ "path" }), _tool_read_file);
+	p_server->register_tool("read_file", "Alias dari filesystem_manage op=read. Args: path, json, binary (base64 untuk PNG/dll).", _schema(true, Vector<String>{ "path" }), _tool_read_file);
 	p_server->register_tool("write_file", "Alias dari filesystem_manage op=write. Args: path, content.", _schema(true, Vector<String>{ "path", "content" }), _tool_write_file);
 	p_server->register_tool("list_assets", "Alias dari filesystem_manage op=list. Args: pattern, recursive.", _schema_any(Vector<String>{ "pattern", "recursive" }), _tool_list_assets);
 
@@ -2143,14 +2171,14 @@ void mcp_register_tools(McpServer *p_server) {
 	p_server->register_tool("send_input", "Alias dari game_manage op=input. Args: kind (action|key|mouse_button), action/key/button, pressed, position.", _schema(false, Vector<String>{ "kind", "action", "key", "button", "pressed", "position" }), _tool_send_input);
 
 	// Editor utilities.
-	p_server->register_tool("editor_screenshot", "Ambil screenshot viewport editor (atau game saat sedang berjalan). Mengembalikan gambar PNG + actual_source. Args: source (editor|2d|game|game2d), max_width, save_path (.png), hide_gizmos (bool), focus_node (crop ke node).", _schema_any(Vector<String>{ "source", "max_width", "save_path", "hide_gizmos", "focus_node" }), _tool_screenshot);
+	p_server->register_tool("editor_screenshot", "Ambil screenshot viewport editor (atau game saat sedang berjalan). Mengembalikan gambar PNG + actual_source. Args: source (editor|2d|game|game2d|window=seluruh UI), max_width, save_path (.png), hide_gizmos (bool), focus_node (crop ke node).", _schema_any(Vector<String>{ "source", "max_width", "save_path", "hide_gizmos", "focus_node" }), _tool_screenshot);
 	p_server->register_tool("screenshot", "Alias dari editor_screenshot.", _schema_any(Vector<String>{ "source", "max_width", "save_path", "hide_gizmos", "focus_node" }), _tool_screenshot);
 	p_server->register_tool("batch_execute", "Jalankan beberapa tool dalam satu kali perjalanan. Args: operations (array berisi {tool: nama, arguments: {}}), stop_on_error (bool). Mengembalikan array hasil.", _schema_any(Vector<String>{ "operations", "stop_on_error" }), _tool_batch_execute);
 	p_server->register_tool("logs_read", "Baca baris log error/peringatan/MCP editor terbaru. Args: level (all|error|warning|info), limit (int).", _schema_any(Vector<String>{ "level", "limit" }), _tool_logs_read);
 	p_server->register_tool("debugger_errors", "Baca error/peringatan panel Debugger editor (dari game berjalan). Args: level (all|error|warning), dedup (bool), limit (0=tanpa batas), stack (bool, sertakan stack live), clear (bool, bersihkan panel).", _schema_any(Vector<String>{ "level", "dedup", "limit", "stack", "clear" }), _tool_debugger_errors);
 	p_server->register_tool("refresh", "Pindai ulang filesystem proyek dan muat ulang scene/pengaturan proyek yang berubah di disk, tanpa memulai ulang editor.", _schema_any(Vector<String>()), _tool_refresh);
 	p_server->register_tool("duplicate_node", "Duplikat node + subtree-nya sebagai sibling (undoable). Args: path, name (opsional).", _schema(true, Vector<String>{ "path" }), _tool_duplicate_node);
-	p_server->register_tool("execute_script", "Jalankan snippet GDScript di editor (EditorInterface/Engine/ProjectSettings tersedia, indentasi otomatis). Args: code. AWAS: infinite loop menggantung editor.", _schema(true, Vector<String>{ "code" }), _tool_execute_script);
+	p_server->register_tool("execute_script", "Jalankan snippet GDScript di editor dan kembalikan nilainya. WAJIB akhiri dengan 'return ...' untuk dapat output (maks 4000 char). Satu baris pakai ';'. EditorInterface/Engine/ProjectSettings tersedia. AWAS: infinite loop menggantung editor.", _schema(true, Vector<String>{ "code" }), _tool_execute_script);
 	p_server->register_tool("glob", "Cari file se-project dengan pola (mis. *.gd, **/*.tscn; lewati .godot/.git). Args: pattern, path (default res://).", _schema(true, Vector<String>{ "pattern" }), _tool_glob);
 	p_server->register_tool("grep_code", "Cari teks di file project (substring, per baris). Args: pattern, path (default res://), ext, max (default 50).", _schema(true, Vector<String>{ "pattern" }), _tool_grep_code);
 	p_server->register_tool("path_to_uid", "Path res:// -> UID cache. Args: path.", _schema(true, Vector<String>{ "path" }), _tool_path_to_uid);
