@@ -120,8 +120,9 @@ jobs:
             --title "Godot 4.8-dev Editor arm64 (MCP) $TAG" \
             --notes "Download APK langsung (bukan zip). Setelah editor terbuka, aktifkan MCP di Editor > Editor Settings > mcp. URL LAN tampil di notifikasi 'Server MCP hidup' (pilih 'Salin URL MCP')."
           APK=$(ls bin/android_editor_builds/*.apk | head -1)
+          APKNAME=$(basename "$APK")
           echo "### APK editor arm64 (download langsung)" >> "$GITHUB_STEP_SUMMARY"
-          echo "[$APK](https://github.com/${{ github.repository }}/releases/tag/$TAG)" >> "$GITHUB_STEP_SUMMARY"
+          echo "[$APKNAME](https://github.com/${{ github.repository }}/releases/download/$TAG/$APKNAME)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload artifact
         uses: ./.github/actions/upload-artifact
