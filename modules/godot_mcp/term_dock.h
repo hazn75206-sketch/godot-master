@@ -160,6 +160,8 @@ class TermDockPlugin : public EditorPlugin {
 
 	TermDock *dock = nullptr;
 
+	void _show_terminal();
+
 public:
 	TermDockPlugin();
 	~TermDockPlugin();

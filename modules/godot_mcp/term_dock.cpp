@@ -3,6 +3,7 @@
 #ifdef TOOLS_ENABLED
 
 #include "editor/editor_node.h"
+#include "editor/docks/editor_dock_manager.h"
 #include "core/config/project_settings.h"
 #include "core/variant/callable.h"
 #include "core/object/callable_mp.h"
@@ -1169,9 +1170,25 @@ TermDockPlugin::~TermDockPlugin() {
 void TermDockPlugin::_enter_tree() {
 	dock = memnew(TermDock);
 	add_control_to_bottom_panel(dock, "Terminal");
+	add_tool_menu_item("Terminal", callable_mp(this, &TermDockPlugin::_show_terminal));
+	// Fork ini pakai EditorDockManager: dock baru lahir closed sehingga
+	// tab tidak tampil. Daftarkan tab tanpa mencuri fokus panel.
+	if (EditorDockManager::get_singleton()) {
+		EditorDock *ed = EditorDockManager::get_singleton()->get_dock_by_name("Terminal");
+		if (ed) {
+			EditorDockManager::get_singleton()->open_dock(ed, false);
+		}
+	}
+}
+
+void TermDockPlugin::_show_terminal() {
+	if (dock) {
+		make_bottom_panel_item_visible(dock);
+	}
 }
 
 void TermDockPlugin::_exit_tree() {
+	remove_tool_menu_item("Terminal");
 	if (dock) {
 		remove_control_from_bottom_panel(dock);
 		dock = nullptr; // Editor yang mem-free panel.
