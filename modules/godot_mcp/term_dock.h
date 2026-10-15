@@ -30,6 +30,7 @@ class TermView : public Control {
 public:
 	enum ParseState {
 		PS_GROUND,
+		PS_UTF8,
 		PS_ESC,
 		PS_CSI,
 		PS_OSC,
@@ -128,6 +129,8 @@ class TermDock : public VBoxContainer {
 	static void _reader_static(void *ud);
 	void _reader_loop();
 	void _send(const String &s);
+	void _send_str(const String &s);
+	void _apply_winsize(int p_cols, int p_rows);
 	void _send_bytes(const uint8_t *d, size_t n);
 	void _spawn();
 	void _kill_child();

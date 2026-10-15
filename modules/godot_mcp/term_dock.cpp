@@ -735,7 +735,7 @@ void TermView::_update_geometry() {
 			int old = lines[i].size();
 			lines.write[i].resize(cols);
 			for (int k = old; k < cols; k++) {
-				lines[i][k] = TermCell();
+				lines.write[i].write[k] = TermCell();
 			}
 		}
 	}
