@@ -5,6 +5,7 @@
 #include "editor/editor_node.h"
 #include "core/config/project_settings.h"
 #include "core/variant/callable.h"
+#include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "core/os/os.h"
 #include "core/string/ustring.h"
@@ -56,7 +57,7 @@ TermView::TermView() {
 	cur_bg = palette[0];
 	lines.resize(rows);
 	for (int i = 0; i < rows; i++) {
-		lines[i].resize(cols);
+		lines.write[i].resize(cols);
 	}
 	margin_bottom = rows - 1;
 	set_focus_mode(FOCUS_ALL);
@@ -107,9 +108,9 @@ void TermView::_ensure_line(int y) {
 	}
 	if (b[y].size() < cols) {
 		int old = b[y].size();
-		b[y].resize(cols);
+		b.write[y].resize(cols);
 		for (int i = old; i < cols; i++) {
-			b[y][i] = TermCell();
+			b.write[y].write[i] = TermCell();
 		}
 	}
 }
@@ -138,7 +139,7 @@ void TermView::_put_char(char32_t ch) {
 	c.bg = cur_bg;
 	c.bold = cur_bold;
 	c.reverse = cur_reverse;
-	b[ay][cx] = c;
+	b.write[ay].write[cx] = c;
 	cx++;
 	if (cx >= cols) {
 		cx = 0;
@@ -180,11 +181,11 @@ void TermView::_scroll_up(int top, int bottom, int n) {
 			b.push_back(nl);
 		} else {
 			for (int y = top; y < bottom; y++) {
-				b[base + y] = b[base + y + 1];
+				b.write[base + y] = b[base + y + 1];
 			}
 			Vector<TermCell> nl;
 			nl.resize(cols);
-			b[base + bottom] = nl;
+			b.write[base + bottom] = nl;
 		}
 	}
 }
@@ -201,31 +202,26 @@ void TermView::_erase_display(int mode) {
 	if (mode == 2) {
 		for (int y = 0; y < rows; y++) {
 			for (int x = 0; x < cols; x++) {
-				b[base + y][x] = TermCell();
-				b[base + y][x].bg = cur_bg;
+				{ TermCell _nc; _nc.bg = cur_bg; b.write[base + y].write[x] = _nc; }
 			}
 		}
 	} else if (mode == 0) {
 		for (int x = cx; x < cols; x++) {
-			b[base + cy][x] = TermCell();
-			b[base + cy][x].bg = cur_bg;
+			{ TermCell _nc; _nc.bg = cur_bg; b.write[base + cy].write[x] = _nc; }
 		}
 		for (int y = cy + 1; y < rows; y++) {
 			for (int x = 0; x < cols; x++) {
-				b[base + y][x] = TermCell();
-				b[base + y][x].bg = cur_bg;
+				{ TermCell _nc; _nc.bg = cur_bg; b.write[base + y].write[x] = _nc; }
 			}
 		}
 	} else if (mode == 1) {
 		for (int y = 0; y < cy; y++) {
 			for (int x = 0; x < cols; x++) {
-				b[base + y][x] = TermCell();
-				b[base + y][x].bg = cur_bg;
+				{ TermCell _nc; _nc.bg = cur_bg; b.write[base + y].write[x] = _nc; }
 			}
 		}
 		for (int x = 0; x <= cx && x < cols; x++) {
-			b[base + cy][x] = TermCell();
-			b[base + cy][x].bg = cur_bg;
+			{ TermCell _nc; _nc.bg = cur_bg; b.write[base + cy].write[x] = _nc; }
 		}
 	}
 }
@@ -235,18 +231,15 @@ void TermView::_erase_line(int mode) {
 	int ay = _base() + cy;
 	if (mode == 2) {
 		for (int x = 0; x < cols; x++) {
-			b[ay][x] = TermCell();
-			b[ay][x].bg = cur_bg;
+			{ TermCell _nc; _nc.bg = cur_bg; b.write[ay].write[x] = _nc; }
 		}
 	} else if (mode == 0) {
 		for (int x = cx; x < cols; x++) {
-			b[ay][x] = TermCell();
-			b[ay][x].bg = cur_bg;
+			{ TermCell _nc; _nc.bg = cur_bg; b.write[ay].write[x] = _nc; }
 		}
 	} else if (mode == 1) {
 		for (int x = 0; x <= cx && x < cols; x++) {
-			b[ay][x] = TermCell();
-			b[ay][x].bg = cur_bg;
+			{ TermCell _nc; _nc.bg = cur_bg; b.write[ay].write[x] = _nc; }
 		}
 	}
 }
@@ -408,11 +401,11 @@ void TermView::_csi_dispatch(char final) {
 			int base = _base();
 			for (int k = 0; k < n; k++) {
 				for (int y = margin_bottom; y > cy; y--) {
-					b[base + y] = b[base + y - 1];
+					b.write[base + y] = b[base + y - 1];
 				}
 				Vector<TermCell> nl;
 				nl.resize(cols);
-				b[base + cy] = nl;
+				b.write[base + cy] = nl;
 			}
 		} break;
 		case 'M': { // DL: hapus baris
@@ -420,11 +413,11 @@ void TermView::_csi_dispatch(char final) {
 			int base = _base();
 			for (int k = 0; k < n; k++) {
 				for (int y = cy; y < margin_bottom; y++) {
-					b[base + y] = b[base + y + 1];
+					b.write[base + y] = b[base + y + 1];
 				}
 				Vector<TermCell> nl;
 				nl.resize(cols);
-				b[base + margin_bottom] = nl;
+				b.write[base + margin_bottom] = nl;
 			}
 		} break;
 		case '@': { // ICH: sisip kolom
@@ -432,10 +425,9 @@ void TermView::_csi_dispatch(char final) {
 			int ay = _base() + cy;
 			for (int k = 0; k < n; k++) {
 				for (int x = cols - 1; x > cx; x--) {
-					b[ay][x] = b[ay][x - 1];
+					b.write[ay].write[x] = b[ay][x - 1];
 				}
-				b[ay][cx] = TermCell();
-				b[ay][cx].bg = cur_bg;
+				{ TermCell _nc; _nc.bg = cur_bg; b.write[ay].write[cx] = _nc; }
 			}
 		} break;
 		case 'P': { // DCH: hapus kolom
@@ -443,18 +435,16 @@ void TermView::_csi_dispatch(char final) {
 			int ay = _base() + cy;
 			for (int k = 0; k < n; k++) {
 				for (int x = cx; x < cols - 1; x++) {
-					b[ay][x] = b[ay][x + 1];
+					b.write[ay].write[x] = b[ay][x + 1];
 				}
-				b[ay][cols - 1] = TermCell();
-				b[ay][cols - 1].bg = cur_bg;
+				{ TermCell _nc; _nc.bg = cur_bg; b.write[ay].write[cols - 1] = _nc; }
 			}
 		} break;
 		case 'X': { // ECH: hapus n kolom
 			int n = MAX(1, _csi_arg(0, 1));
 			int ay = _base() + cy;
 			for (int x = cx; x < MIN(cols, cx + n); x++) {
-				b[ay][x] = TermCell();
-				b[ay][x].bg = cur_bg;
+				{ TermCell _nc; _nc.bg = cur_bg; b.write[ay].write[x] = _nc; }
 			}
 		} break;
 		case 'S': { // SU: scroll naik
@@ -465,11 +455,11 @@ void TermView::_csi_dispatch(char final) {
 			int base = _base();
 			for (int k = 0; k < n; k++) {
 				for (int y = margin_bottom; y > margin_top; y--) {
-					b[base + y] = b[base + y - 1];
+					b.write[base + y] = b[base + y - 1];
 				}
 				Vector<TermCell> nl;
 				nl.resize(cols);
-				b[base + margin_top] = nl;
+				b.write[base + margin_top] = nl;
 			}
 		} break;
 		case 'c': { // DA
@@ -518,7 +508,7 @@ void TermView::_csi_dispatch(char final) {
 					alt_lines.clear();
 					alt_lines.resize(rows);
 					for (int i = 0; i < rows; i++) {
-						alt_lines[i].resize(cols);
+						alt_lines.write[i].resize(cols);
 					}
 					cx = 0;
 					cy = 0;
@@ -621,11 +611,11 @@ void TermView::feed_byte(uint8_t b) {
 					Vector<Vector<TermCell>> &bb = _buf();
 					int base = _base();
 					for (int y = margin_bottom; y > margin_top; y--) {
-						bb[base + y] = bb[base + y - 1];
+						bb.write[base + y] = bb[base + y - 1];
 					}
 					Vector<TermCell> nl;
 					nl.resize(cols);
-					bb[base + margin_top] = nl;
+					bb.write[base + margin_top] = nl;
 				} else {
 					cy--;
 				}
@@ -688,7 +678,7 @@ void TermView::clear_all() {
 	lines.clear();
 	lines.resize(rows);
 	for (int i = 0; i < rows; i++) {
-		lines[i].resize(cols);
+		lines.write[i].resize(cols);
 	}
 	alt_lines.clear();
 	use_alt = false;
@@ -743,7 +733,7 @@ void TermView::_update_geometry() {
 	for (int i = 0; i < (int)lines.size(); i++) {
 		if ((int)lines[i].size() < cols) {
 			int old = lines[i].size();
-			lines[i].resize(cols);
+			lines.write[i].resize(cols);
 			for (int k = old; k < cols; k++) {
 				lines[i][k] = TermCell();
 			}
