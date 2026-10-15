@@ -5,7 +5,7 @@
 
 #include "editor/plugins/editor_plugin.h"
 #include "core/input/input_event.h"
-#include "core/object/callable.h"
+#include "core/variant/callable.h"
 #include "scene/gui/box_container.h"
 #include "scene/gui/button.h"
 #include "scene/gui/control.h"

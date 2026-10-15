@@ -4,7 +4,7 @@
 
 #include "editor/editor_node.h"
 #include "core/config/project_settings.h"
-#include "core/object/callable.h"
+#include "core/variant/callable.h"
 #include "core/object/class_db.h"
 #include "core/os/os.h"
 #include "core/string/ustring.h"
