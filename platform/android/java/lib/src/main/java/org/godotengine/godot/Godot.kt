@@ -208,6 +208,8 @@ class Godot private constructor(val context: Context) {
 	internal var xrMode = XRMode.REGULAR
 	private val useImmersive = AtomicBoolean(false)
 	private val isEdgeToEdge = AtomicBoolean(false)
+	// Di-set modul notch (editor): konten boleh masuk area poni.
+	private val ignoreDisplayCutout = AtomicBoolean(false)
 	private var useDebugOpengl = false
 	internal var darkMode = false
 	private var backgroundColor: Int = Color.BLACK
@@ -397,7 +399,7 @@ class Godot private constructor(val context: Context) {
 			ViewCompat.setOnApplyWindowInsetsListener(rootView) { v: View, insets: WindowInsetsCompat ->
 				v.post {
 					if (useImmersive.get()) {
-						if (isEditorBuild()) {
+						if (isEditorBuild() && !ignoreDisplayCutout.get()) {
 							val windowInsets = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
 							v.setPadding(windowInsets.left, windowInsets.top, windowInsets.right, windowInsets.bottom)
 						} else {
@@ -416,11 +418,26 @@ class Godot private constructor(val context: Context) {
 	}
 
 	private fun getInsetType(): Int {
+		val cutout = if (ignoreDisplayCutout.get()) {
+			0
+		} else {
+			WindowInsetsCompat.Type.displayCutout()
+		}
 		return if (!useImmersive.get() || isEditorBuild()) {
-			WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+			WindowInsetsCompat.Type.systemBars() or cutout
 		} else {
 			WindowInsetsCompat.Type.systemBars()
 		}
+	}
+
+	/**
+	 * Izinkan konten masuk area poni (dipakai toggle hide-notch editor).
+	 * Must be called from the UI thread.
+	 */
+	fun setIgnoreDisplayCutout(ignore: Boolean) {
+		ignoreDisplayCutout.set(ignore)
+		// Terapkan ulang padding dengan listener aktif.
+		enableEdgeToEdge(isEdgeToEdge.get(), true)
 	}
 
 	private fun resetVirtualKeyboardHeight(insets: WindowInsetsCompat) {

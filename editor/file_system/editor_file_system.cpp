@@ -3115,6 +3115,19 @@ void EditorFileSystem::reimport_file_with_custom_parameters(const String &p_file
 }
 
 Error EditorFileSystem::_copy_file(const String &p_from, const String &p_to) {
+	if (!p_from.begins_with("res://")) {
+		// Sumber luar project (mis. storage HP di Android): DirAccess mode
+		// resources tidak bisa membacanya, salin via akses filesystem absolut.
+		RETURN_IF_ERROR(DirAccess::copy_absolute(p_from, p_to));
+		update_file(p_to);
+		EditorFileSystemDirectory *parent = get_filesystem_path(p_to.get_base_dir());
+		if (parent) {
+			ScanProgress sp;
+			_scan_fs_changes(parent, sp, false);
+		}
+		_queue_refresh_filesystem();
+		return OK;
+	}
 	Ref<DirAccess> da = DirAccess::create(DirAccess::ACCESS_RESOURCES);
 	if (FileAccess::exists(p_from + ".import")) {
 		RETURN_IF_ERROR(da->copy(p_from, p_to));

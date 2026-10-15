@@ -57,8 +57,23 @@ Variant McpFileTree::get_drag_data(const Point2 &p_point) {
 	dd["type"] = "files_and_dirs";
 	dd["files"] = files;
 	dd["fm_copy"] = true; // Selalu COPY: file asli di storage tidak boleh hilang.
-	Label *preview = memnew(Label);
-	preview->set_text(vformat("%d item (salin)", files.size()));
+	// Preview ber-style (PanelContainer ikut tema) agar jelas selama di window FM.
+	// Catatan engine: preview digambar di viewport asal, tidak ikut keluar window.
+	PanelContainer *preview = memnew(PanelContainer);
+	VBoxContainer *pv = memnew(VBoxContainer);
+	preview->add_child(pv);
+	Label *pt = memnew(Label);
+	pt->set_text(vformat("%d item (salin)", files.size()));
+	pv->add_child(pt);
+	int shown = 0;
+	TreeItem *it2 = get_next_selected(nullptr);
+	while (it2 && shown < 3) {
+		Label *pl = memnew(Label);
+		pl->set_text(String(it2->get_metadata(0)).get_file());
+		pv->add_child(pl);
+		it2 = get_next_selected(it2);
+		shown++;
+	}
 	set_drag_preview(preview);
 	return dd;
 }
@@ -211,20 +226,20 @@ void McpFileManager::_build_ui() {
 	actions->set_alignment(BoxContainer::ALIGNMENT_CENTER);
 	actions->add_theme_constant_override("separation", 6);
 	root->add_child(actions);
-	actions->add_child(_make_action("fm_open", "Buka", "Buka", &McpFileManager::_on_open_selected));
-	actions->add_child(_make_action("fm_copy", "Salin", "Salin", &McpFileManager::_on_copy));
-	actions->add_child(_make_action("fm_cut", "Potong", "Potong", &McpFileManager::_on_cut));
-	actions->add_child(_make_action("fm_paste", "Tempel", "Tempel", &McpFileManager::_on_paste));
-	actions->add_child(_make_action("fm_rename", "Ganti Nama", "Ganti nama", &McpFileManager::_on_rename));
-	actions->add_child(_make_action("fm_delete", "Hapus", "Hapus", &McpFileManager::_on_delete));
-	actions->add_child(_make_action("fm_add", "Folder", "Folder baru", &McpFileManager::_on_mkdir));
-	actions->add_child(_make_action("fm_extract", "Ekstrak ZIP", "Ekstrak arsip", &McpFileManager::_on_extract));
-	actions->add_child(_make_action("fm_info", "Info", "Properti", &McpFileManager::_on_info));
+	actions->add_child(_make_action("FileBrowse", "Buka", "Buka", &McpFileManager::_on_open_selected));
+	actions->add_child(_make_action("ActionCopy", "Salin", "Salin", &McpFileManager::_on_copy));
+	actions->add_child(_make_action("ActionCut", "Potong", "Potong", &McpFileManager::_on_cut));
+	actions->add_child(_make_action("ActionPaste", "Tempel", "Tempel", &McpFileManager::_on_paste));
+	actions->add_child(_make_action("Rename", "Ganti Nama", "Ganti nama", &McpFileManager::_on_rename));
+	actions->add_child(_make_action("Remove", "Hapus", "Hapus", &McpFileManager::_on_delete));
+	actions->add_child(_make_action("FolderCreate", "Folder", "Folder baru", &McpFileManager::_on_mkdir));
+	actions->add_child(_make_action("Load", "Ekstrak ZIP", "Ekstrak arsip", &McpFileManager::_on_extract));
+	actions->add_child(_make_action("Info", "Info", "Properti", &McpFileManager::_on_info));
 	Button *refresh_act = memnew(Button);
 	refresh_act->set_tooltip_text("Segarkan");
 	refresh_act->set_flat(true);
-	if (has_theme_icon("fm_refresh", "EditorIcons")) {
-		refresh_act->set_button_icon(get_theme_icon("fm_refresh", "EditorIcons"));
+	if (has_theme_icon("Reload", "EditorIcons")) {
+		refresh_act->set_button_icon(get_theme_icon("Reload", "EditorIcons"));
 	}
 	refresh_act->connect("pressed", callable_mp(this, &McpFileManager::_refresh));
 	actions->add_child(refresh_act);
@@ -348,13 +363,6 @@ void McpFileManager::_refresh() {
 		String icon_name = _icon_for(String(r["name"]), is_dir);
 		if (has_theme_icon(icon_name, "EditorIcons")) {
 			it->set_icon(0, get_theme_icon(icon_name, "EditorIcons"));
-			if (is_dir) {
-				it->set_icon_modulate(0, Color(1.0, 0.84, 0.35));
-			} else if (ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "webp" || ext == "svg" || ext == "bmp" || ext == "gif") {
-				it->set_icon_modulate(0, Color(0.55, 0.8, 1.0));
-			} else if (ext == "zip" || ext == "rar" || ext == "7z" || ext == "tar" || ext == "gz" || ext == "apk") {
-				it->set_icon_modulate(0, Color(1.0, 0.65, 0.35));
-			}
 		}
 		it->set_metadata(0, String(r["path"]));
 		it->set_tooltip_text(0, String(r["path"]));
@@ -405,36 +413,34 @@ String McpFileManager::_fmt_size(uint64_t p_bytes) const {
 }
 
 String McpFileManager::_icon_for(const String &p_name, bool p_dir) const {
+	// Icon standar EditorIcons (ikut tema terang/gelap, tanpa modulate hardcode).
 	if (p_dir) {
-		return "fm_dir";
+		return "Folder";
 	}
 	String ext = p_name.get_extension().to_lower();
 	if (ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "webp" || ext == "svg" || ext == "bmp" || ext == "gif") {
-		return "fm_image";
+		return "Image";
 	}
 	if (ext == "mp4" || ext == "mov" || ext == "mkv" || ext == "webm" || ext == "avi") {
-		return "fm_video";
+		return "VideoStream";
 	}
 	if (ext == "mp3" || ext == "ogg" || ext == "wav" || ext == "flac" || ext == "m4a") {
-		return "fm_audio";
-	}
-	if (ext == "zip" || ext == "rar" || ext == "7z" || ext == "tar" || ext == "gz" || ext == "apk") {
-		return ext == "apk" ? "fm_apk" : "fm_archive";
+		return "AudioStream";
 	}
 	if (ext == "txt" || ext == "md" || ext == "log" || ext == "json" || ext == "xml" || ext == "csv") {
-		return "fm_text";
+		return "TextFile";
 	}
 	if (ext == "gd" || ext == "cpp" || ext == "h" || ext == "hpp" || ext == "c" || ext == "py" || ext == "js" || ext == "ts" || ext == "cs" || ext == "kt" || ext == "java" || ext == "glsl" || ext == "gdshader" || ext == "tscn" || ext == "tres" || ext == "godot") {
-		return "fm_doc";
+		return "File";
 	}
-	return "fm_doc";
+	return "File";
 }
 
 void McpFileManager::_apply_button_icons() {
 	// Nav buttons (guard: theme bisa belum siap saat awal).
-	if (btn_back && has_theme_icon("fm_back", "EditorIcons")) btn_back->set_button_icon(get_theme_icon("fm_back", "EditorIcons"));
-	if (btn_home && has_theme_icon("fm_home", "EditorIcons")) btn_home->set_button_icon(get_theme_icon("fm_home", "EditorIcons"));
-	if (btn_refresh && has_theme_icon("fm_refresh", "EditorIcons")) btn_refresh->set_button_icon(get_theme_icon("fm_refresh", "EditorIcons"));
+	if (btn_back && has_theme_icon("Back", "EditorIcons")) btn_back->set_button_icon(get_theme_icon("Back", "EditorIcons"));
+	if (btn_home && has_theme_icon("FolderBrowse", "EditorIcons")) btn_home->set_button_icon(get_theme_icon("FolderBrowse", "EditorIcons"));
+	if (btn_refresh && has_theme_icon("Reload", "EditorIcons")) btn_refresh->set_button_icon(get_theme_icon("Reload", "EditorIcons"));
 
 	// Action VBox icons (dibuat di _make_action; guard theme belum siap).
 	for (int i = 0; i < action_icons.size() && i < action_icon_names.size(); i++) {
@@ -1151,15 +1157,10 @@ void McpFileManagerPlugin::refresh_toolbar_icon() {
 	}
 	toolbar_btn->set_text("FM");
 	Control *base = EditorInterface::get_singleton()->get_base_control();
-	if (base && base->has_theme_icon("fm_dir", "EditorIcons")) {
-		toolbar_btn->set_button_icon(base->get_theme_icon("fm_dir", "EditorIcons"));
+	if (base && base->has_theme_icon("Folder", "EditorIcons")) {
+		toolbar_btn->set_button_icon(base->get_theme_icon("Folder", "EditorIcons"));
 	}
-	toolbar_btn->add_theme_color_override("icon_normal_color", Color(1, 1, 1));
-	toolbar_btn->add_theme_color_override("icon_hover_color", Color(1, 1, 1));
-	toolbar_btn->add_theme_color_override("icon_pressed_color", Color(1, 1, 1));
-	toolbar_btn->add_theme_color_override("icon_focus_color", Color(1, 1, 1));
-	toolbar_btn->add_theme_color_override("icon_disabled_color", Color(1, 1, 1, 0.5));
-	toolbar_btn->add_theme_color_override("font_color", Color(1, 1, 1));
+	// Warna ikut tema editor (tanpa override putih hardcode).
 }
 
 void McpFileManagerPlugin::_open_manager() {

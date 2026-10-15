@@ -32,18 +32,18 @@ void notch_hider_register_settings() {
 	if (!es) {
 		return;
 	}
+	// Default OFF: user nyalakan manual, langsung berlaku (tanpa restart/poll).
 	if (!es->has_setting("android/hide_display_cutout")) {
-		es->set_setting("android/hide_display_cutout", true);
+		es->set_setting("android/hide_display_cutout", false);
 	}
-	es->add_property_hint(PropertyInfo(Variant::BOOL, "android/hide_display_cutout", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_DEFAULT, "Layar penuh: pakai seluruh layar termasuk area poni (notch), tanpa bar hitam letterbox. Bisa dimatikan."));
+	es->add_property_hint(PropertyInfo(Variant::BOOL, "android/hide_display_cutout", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_DEFAULT, "Layar penuh: pakai seluruh layar termasuk area poni (notch), tanpa bar hitam letterbox. Langsung berlaku saat diubah."));
 }
 
 void notch_hider_apply() {
 #ifdef ANDROID_ENABLED
-	// Tanpa cache sekali-pakai: window attrs bisa di-reset Godot/activity
-	// kapan saja (resume, rotasi, edge-to-edge), jadi terapkan tiap poll.
+	// Nilai startup + tiap perubahan setting (via settings_changed, tanpa poll).
 	EditorSettings *es = EditorSettings::get_singleton();
-	bool hidden = true;
+	bool hidden = false;
 	if (es && es->has_setting("android/hide_display_cutout")) {
 		hidden = bool(es->get_setting("android/hide_display_cutout"));
 	}

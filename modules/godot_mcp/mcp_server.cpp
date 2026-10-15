@@ -57,6 +57,11 @@ void McpServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("apply_config"), &McpServer::apply_config);
 	ClassDB::bind_method(D_METHOD("set_enabled", "enabled"), &McpServer::set_enabled);
 	ClassDB::bind_method(D_METHOD("get_mcp_url"), &McpServer::get_mcp_url);
+	ClassDB::bind_method(D_METHOD("_apply_notch"), &McpServer::_apply_notch);
+}
+
+void McpServer::_apply_notch() {
+	notch_hider_apply();
 }
 
 bool McpServer::get_enabled() const {
@@ -267,7 +272,7 @@ void McpServer::register_editor_settings() {
 	}
 	// Sekali migrasi: pindahkan nilai lama mcp/* ke network/mcp/* (Editor Settings > Jaringan).
 	// Aman diulang: hanya menyalin bila kunci lama ada dan kunci baru belum ada.
-	const char *migrated_keys[] = { "enabled", "port", "transport", "bind_mode", "auto_reload_external", "log_level" };
+	const char *migrated_keys[] = { "enabled", "port", "transport", "bind_mode", "log_level" };
 	for (const char *k : migrated_keys) {
 		String oldk = String("mcp/") + k;
 		String newk = String("network/mcp/") + k;
@@ -290,9 +295,6 @@ void McpServer::register_editor_settings() {
 	if (!es->has_setting("network/mcp/bind_mode")) {
 		es->set_setting("network/mcp/bind_mode", 0);
 	}
-	if (!es->has_setting("network/mcp/auto_reload_external")) {
-		es->set_setting("network/mcp/auto_reload_external", false);
-	}
 	if (!es->has_setting("network/mcp/log_level")) {
 		es->set_setting("network/mcp/log_level", 2);
 	}
@@ -311,7 +313,6 @@ void McpServer::register_editor_settings() {
 	es->add_property_hint(PropertyInfo(Variant::INT, "network/mcp/transport", PROPERTY_HINT_ENUM, "Keduanya (Streamable HTTP + SSE),Hanya Streamable HTTP,Hanya SSE"));
 	es->add_property_hint(PropertyInfo(Variant::INT, "network/mcp/bind_mode", PROPERTY_HINT_ENUM, "LAN (bisa diakses dari perangkat lain),Hanya Localhost"));
 	es->add_property_hint(PropertyInfo(Variant::INT, "network/mcp/port", PROPERTY_HINT_RANGE, "1,65535,1"));
-	es->add_property_hint(PropertyInfo(Variant::BOOL, "network/mcp/auto_reload_external", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_DEFAULT, "Muat ulang otomatis file yang berubah di luar editor (tanpa konfirmasi)"));
 	es->add_property_hint(PropertyInfo(Variant::INT, "network/mcp/log_level", PROPERTY_HINT_ENUM, "Diam,Hanya koneksi,Semua"));
 	// The MCP server never auto-starts on launch. Keep the poll connected so
 	// enabling/disabling the setting takes effect immediately without a restart.
@@ -573,30 +574,16 @@ void McpServer::_tick() {
 	}
 	last_tick = now;
 #ifdef TOOLS_ENABLED
-	// Poll the filesystem so files changed on disk (scenes, scripts,
-	// project.godot, new assets) show up in the editor right away, without
-	// waiting for a game run or an application focus event. On Android the
-	// window never changes focus, so the engine's focus-based scan never ran.
-	// This runs as long as the editor is open, regardless of the MCP server
-	// being enabled. Tool handlers also trigger an immediate reload after
-	// writing files; this slower poll catches changes made outside MCP.
-	if (now - last_fs_poll_msec >= 2000) {
-		last_fs_poll_msec = now;
-		EditorFileSystem *efs = EditorFileSystem::get_singleton();
-		if (efs) {
-			efs->scan_changes();
+	// Toggle notch berlaku instan: awasi perubahan Editor Settings (tanpa poll nilai).
+	if (!notch_watched) {
+		notch_watched = true;
+		if (EditorSettings::get_singleton()) {
+			EditorSettings::get_singleton()->connect("settings_changed", callable_mp(this, &McpServer::_apply_notch));
 		}
-		EditorNode *en = EditorNode::get_singleton();
-		if (en && !EditorInterface::get_singleton()->is_playing_scene()) {
-			if (EditorSettings::get_singleton()->get_setting("network/mcp/auto_reload_external")) {
-				en->refresh_external_changes();
-			} else {
-				en->poll_external_changes();
-			}
-		}
-		// Re-apply hide-notch toggle live (cheap: JNI only runs on change).
-		notch_hider_apply();
 	}
+	// Tanpa poll filesystem: file yang ditulis tools MCP langsung memicu
+	// refresh di handler-nya masing-masing; perubahan luar-MCP disegarkan
+	// manual via tool MCP "refresh".
 #endif
 	if (!running) {
 		start_if_enabled();

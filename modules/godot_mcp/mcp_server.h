@@ -76,6 +76,7 @@ protected:
 
 private:
 	void _tick();
+	void _apply_notch();
 	void _drain_tasks();
 	Dictionary _execute_tool(const String &p_name, const Dictionary &p_arguments);
 	Variant _handle_request(const String &p_session_id, const Variant &p_message, bool &r_broadcast_session, String &r_created_session, const String &p_peer_ip = String());
@@ -88,6 +89,7 @@ private:
 	std::unique_ptr<MCPHttpServer> http;
 	bool running = false;
 	bool tick_connected = false;
+	bool notch_watched = false;
 	uint64_t last_tick = 0;
 	uint64_t last_fs_poll_msec = 0;
 	bool was_playing = false;

@@ -30,7 +30,7 @@
 
 #include "inspector_dock.h"
 #ifdef TOOLS_ENABLED
-#include "modules/godot_mcp/fm_dock.h"
+#include "modules/file_manager/fm_dock.h"
 #endif
 
 #include "core/io/resource_loader.h"
@@ -779,7 +779,7 @@ InspectorDock::InspectorDock(EditorData &p_editor_data) {
 	Button *file_manager_button = memnew(Button);
 	file_manager_button->set_theme_type_variation(SceneStringName(FlatButton));
 	file_manager_button->set_tooltip_text(TTRC("Open File Manager."));
-	file_manager_button->set_button_icon(get_editor_theme_icon(SNAME("fm_dir")));
+	file_manager_button->set_button_icon(get_editor_theme_icon(SNAME("Folder")));
 	file_manager_button->connect(SceneStringName(pressed), callable_mp_static(&McpFileManagerPlugin::open_file_manager));
 	button_hb->add_child(file_manager_button);
 #endif

@@ -223,6 +223,9 @@
 #include "modules/modules_enabled.gen.h" // For gdscript, mono.
 #ifdef MODULE_GODOT_MCP_ENABLED
 #include "modules/godot_mcp/mcp_server.h"
+#ifdef ANDROID_ENABLED
+#include "modules/godot_mcp/notch_hider.h"
+#endif
 #endif
 
 #include <cstdlib>
@@ -4013,6 +4016,10 @@ void EditorNode::_menu_option_confirm(int p_option, bool p_confirmed) {
 				EditorSettings::get_singleton()->save();
 #endif
 			}
+#ifdef ANDROID_ENABLED
+			// Ganti mode window bisa me-reset atribut cutout; terapkan ulang.
+			notch_hider_apply();
+#endif
 		} break;
 		case EDITOR_TAKE_SCREENSHOT: {
 			screenshot_timer->start();

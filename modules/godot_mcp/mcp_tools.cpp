@@ -493,8 +493,9 @@ static Variant _tool_set_project_setting(const Dictionary &p_args) {
 	ProjectSettings::get_singleton()->set_setting(name, value);
 	if (p_args.get("save", true)) {
 		ProjectSettings::get_singleton()->save();
+		_mcp_refresh_editor();
 	}
-	return mcp_tool_ret_text(vformat("Setting \'%s\' diperbarui.", name));
+	return mcp_tool_ret_text(vformat("Setting '%s' diperbarui.", name));
 }
 
 static Variant _tool_get_scene_tree(const Dictionary &p_args) {
@@ -1855,6 +1856,8 @@ static Variant _tool_execute_script(const Dictionary &p_args) {
 	if (out.length() > 4000) {
 		out = out.substr(0, 4000) + "\n...(dipotong)";
 	}
+	// Script bebas bisa tulis file; segarkan tanpa poll.
+	_mcp_refresh_editor();
 	return mcp_tool_ret_text(out.is_empty() ? "(tidak ada return)" : out);
 }
 
