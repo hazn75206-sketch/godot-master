@@ -163,6 +163,9 @@ class TermDockPlugin : public EditorPlugin {
 	void _show_terminal();
 
 public:
+	// Registrasi editor dipisah dari constructor (ClassDB bisa
+	// meng-instansiasi kelas ini saat generate dokumentasi tanpa EditorNode).
+	void setup();
 	TermDockPlugin();
 	~TermDockPlugin();
 };

@@ -800,7 +800,14 @@ public:
 	static void remove_extension_editor_plugin(const StringName &p_class_name);
 
 	static void add_plugin_init_callback(EditorPluginInitializeCallback p_callback);
-	static void add_init_callback(EditorNodeInitCallback p_callback) { _init_callbacks.push_back(p_callback); }
+	static void add_init_callback(EditorNodeInitCallback p_callback) {
+		// Skip duplikat: di Android satu proses bisa menjalankan beberapa
+		// instance engine (Project Manager lalu editor), dan initialize_modules
+		// level EDITOR jalan lagi sehingga callback yang sama terdaftar ulang.
+		if (!_init_callbacks.has(p_callback)) {
+			_init_callbacks.push_back(p_callback);
+		}
+	}
 	static void add_build_callback(EditorBuildCallback p_callback);
 
 	static bool immediate_confirmation_dialog(const String &p_text, const String &p_ok_text = TTRC("OK"), const String &p_cancel_text = TTRC("Cancel"), uint32_t p_wrap_width = 0);

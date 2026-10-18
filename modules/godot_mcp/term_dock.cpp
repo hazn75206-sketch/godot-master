@@ -1164,10 +1164,17 @@ void TermDock::_on_restart() {
 
 // ---------------------------------------------------------------- plugin ---
 
-// Registrasi dilakukan di constructor: EditorPlugin di base 4.8-dev tidak
-// memanggil hook _enter_tree untuk plugin C++ (hanya script/GDExtension),
-// sehingga dock tidak pernah terbuat kalau didaftarkan di sana.
+// Constructor bebas efek samping: ClassDB meng-instansiasi kelas ini saat
+// generate dokumentasi (DocTools) termasuk di Project Manager yang tidak
+// punya EditorNode/EditorDockManager. Registrasi editor lewat setup().
 TermDockPlugin::TermDockPlugin() {
+}
+
+TermDockPlugin::~TermDockPlugin() {
+}
+
+void TermDockPlugin::setup() {
+	ERR_FAIL_NULL_MSG(EditorNode::get_singleton(), "Terminal plugin setup requires an editor instance.");
 	dock = memnew(TermDock);
 	editor_dock = memnew(EditorDock);
 	editor_dock->set_title("Terminal");
@@ -1177,22 +1184,16 @@ TermDockPlugin::TermDockPlugin() {
 	editor_dock->set_transient(true);
 	editor_dock->add_child(dock);
 
-	EditorNode *editor = EditorNode::get_singleton();
-	if (editor) {
-		Ref<Theme> theme = editor->get_editor_theme();
-		if (theme.is_valid()) {
-			Ref<Texture2D> icon = theme->get_icon(SNAME("Terminal"), SNAME("EditorIcons"));
-			if (icon.is_valid()) {
-				editor_dock->set_dock_icon(icon);
-			}
+	Ref<Theme> theme = EditorNode::get_singleton()->get_editor_theme();
+	if (theme.is_valid()) {
+		Ref<Texture2D> icon = theme->get_icon(SNAME("Terminal"), SNAME("EditorIcons"));
+		if (icon.is_valid()) {
+			editor_dock->set_dock_icon(icon);
 		}
 	}
 
 	add_dock(editor_dock);
 	add_tool_menu_item("Terminal", callable_mp(this, &TermDockPlugin::_show_terminal));
-}
-
-TermDockPlugin::~TermDockPlugin() {
 }
 
 void TermDockPlugin::_show_terminal() {

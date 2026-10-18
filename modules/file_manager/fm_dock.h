@@ -61,6 +61,7 @@ class McpFileManager : public PanelContainer {
 
 	String current_dir;
 	int sort_mode = 0;
+	bool ui_built = false;
 
 	// Button refs untuk _apply_button_icons
 	Button *btn_back = nullptr;
@@ -121,6 +122,7 @@ class McpFileManager : public PanelContainer {
 
 protected:
 	static void _bind_methods();
+	void _notification(int p_what);
 
 public:
 	void open_dir(const String &p_dir);
@@ -133,12 +135,14 @@ class McpFileManagerPlugin : public EditorPlugin {
 
 	Window *win = nullptr;
 	McpFileManager *fm = nullptr;
-	Button *toolbar_btn = nullptr;
 
 	void _open_manager();
 
 public:
-	void refresh_toolbar_icon();
+	// Registrasi editor dipisah dari constructor: ClassDB meng-instansiasi
+	// kelas ini saat generate dokumentasi (juga di Project Manager tanpa
+	// EditorNode), jadi constructor wajib bebas efek samping.
+	void setup();
 	static McpFileManagerPlugin *get_singleton() { return singleton; }
 	static void open_file_manager() {
 		// The Inspector dock can outlive/rebuild editor plugins. Resolve a live

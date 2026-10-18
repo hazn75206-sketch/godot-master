@@ -17,7 +17,9 @@ void initialize_file_manager_module(ModuleInitializationLevel p_level) {
 
 	if (p_level == MODULE_INITIALIZATION_LEVEL_EDITOR) {
 		EditorNode::add_init_callback([]() {
-			EditorNode::get_singleton()->add_editor_plugin(memnew(McpFileManagerPlugin));
+			McpFileManagerPlugin *plugin = memnew(McpFileManagerPlugin);
+			plugin->setup();
+			EditorNode::get_singleton()->add_editor_plugin(plugin);
 		});
 	}
 #endif

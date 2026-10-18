@@ -21,7 +21,9 @@ void initialize_godot_mcp_module(ModuleInitializationLevel p_level) {
 #ifdef TOOLS_ENABLED
 	if (p_level == MODULE_INITIALIZATION_LEVEL_EDITOR) {
 		EditorNode::add_init_callback([]() {
-			EditorNode::get_singleton()->add_editor_plugin(memnew(TermDockPlugin));
+			TermDockPlugin *plugin = memnew(TermDockPlugin);
+			plugin->setup();
+			EditorNode::get_singleton()->add_editor_plugin(plugin);
 		});
 	}
 #endif

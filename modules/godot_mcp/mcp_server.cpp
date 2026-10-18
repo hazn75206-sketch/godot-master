@@ -31,8 +31,14 @@ McpServer::McpServer() {
 }
 
 McpServer::~McpServer() {
-	stop_server();
-	singleton = nullptr;
+	// Hanya bersihkan singleton jika instance ini yang memegangnya:
+	// ClassDB bisa meng-instansiasi kelas ini sementara (mis. generate
+	// dokumentasi) dan destructor instance sementara tidak boleh
+	// menumbangkan server yang sedang hidup.
+	if (singleton == this) {
+		stop_server();
+		singleton = nullptr;
+	}
 }
 
 McpServer *McpServer::get_singleton() {

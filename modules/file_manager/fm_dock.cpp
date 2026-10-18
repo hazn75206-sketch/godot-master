@@ -177,13 +177,22 @@ void McpFileTree::_notification(int p_what) {
 // -------------------------------------------------------------- McpFileManager
 
 McpFileManager::McpFileManager() {
-	_build_ui();
-	shortcuts.push_back("/storage/emulated/0/Documents");
-	shortcuts.push_back("/storage/emulated/0/DCIM");
-	shortcuts.push_back("/storage/emulated/0/Download");
-	shortcuts.push_back(ProjectSettings::get_singleton()->globalize_path("res://"));
-	_build_shortcuts();
-	open_dir("/storage/emulated/0/Documents");
+}
+
+// UI dibangun saat masuk tree, bukan di constructor: ClassDB bisa
+// meng-instansiasi kelas ini sementara (generate dokumentasi). Instance
+// sementara itu tidak pernah masuk tree sehingga tidak membangun apa pun.
+void McpFileManager::_notification(int p_what) {
+	if (p_what == NOTIFICATION_ENTER_TREE && !ui_built) {
+		ui_built = true;
+		_build_ui();
+		shortcuts.push_back("/storage/emulated/0/Documents");
+		shortcuts.push_back("/storage/emulated/0/DCIM");
+		shortcuts.push_back("/storage/emulated/0/Download");
+		shortcuts.push_back(ProjectSettings::get_singleton()->globalize_path("res://"));
+		_build_shortcuts();
+		open_dir("/storage/emulated/0/Documents");
+	}
 }
 
 Button *McpFileManager::_make_action(const char *p_icon, const char *p_label, const char *p_tip, void (McpFileManager::*p_method)()) {
@@ -531,13 +540,6 @@ void McpFileManager::_apply_button_icons() {
 
 	// Icon item list: jangan tempel null (bikin tampilan rusak).
 	// (Diterapkan di _refresh via _icon_for + has_theme_icon.)
-
-	// Segarkan juga icon tombol toolbar (bisa null kalau theme belum siap
-	// saat plugin dibuat; refresh jalan belakangan sehingga aman).
-	McpFileManagerPlugin *plug = McpFileManagerPlugin::get_singleton();
-	if (plug) {
-		plug->refresh_toolbar_icon();
-	}
 }
 
 Vector<String> McpFileManager::_selected_paths() const {
@@ -1156,32 +1158,13 @@ void McpFileManager::_bind_methods() {
 McpFileManagerPlugin *McpFileManagerPlugin::singleton = nullptr;
 Vector<McpFileManagerPlugin *> McpFileManagerPlugin::instances;
 
-// Registrasi di constructor, bukan _enter_tree: plugin C++ tidak menerima
-// hook _enter_tree di base 4.8-dev (hanya script/GDExtension).
+// Constructor harus bebas efek samping: ClassDB meng-instansiasi kelas ini
+// saat generate dokumentasi (DocTools::get_documentation_default_value),
+// termasuk di Project Manager yang tidak punya EditorNode. Registrasi editor
+// dipindah ke setup() yang hanya dipanggil dari init callback editor.
 McpFileManagerPlugin::McpFileManagerPlugin() {
 	instances.push_back(this);
 	singleton = this;
-
-	add_tool_menu_item("File Manager", callable_mp(this, &McpFileManagerPlugin::_open_manager));
-	// Tombol 1-klik di toolbar atas (lebih gampang dari menu Project > Tools).
-	toolbar_btn = memnew(Button);
-	toolbar_btn->set_tooltip_text("File Manager (Ctrl+Shift+F)");
-	toolbar_btn->set_flat(true);
-	toolbar_btn->connect("pressed", callable_mp(this, &McpFileManagerPlugin::_open_manager));
-	add_control_to_container(CONTAINER_TOOLBAR, toolbar_btn);
-	refresh_toolbar_icon();
-	// Shortcut default Ctrl+Shift+F, tercatat di EditorSettings agar bisa diubah user.
-	EditorSettings *es = EditorSettings::get_singleton();
-	if (es && !es->has_setting("shortcuts/mcp_file_manager")) {
-		Ref<InputEventKey> k;
-		k.instantiate();
-		k->set_pressed(true);
-		k->set_keycode(Key::F);
-		k->set_ctrl_pressed(true);
-		k->set_shift_pressed(true);
-		es->set_initial_value("shortcuts/mcp_file_manager", k, false);
-	}
-	set_process_unhandled_key_input(true);
 }
 
 McpFileManagerPlugin::~McpFileManagerPlugin() {
@@ -1194,6 +1177,23 @@ McpFileManagerPlugin::~McpFileManagerPlugin() {
 	if (singleton == this) {
 		singleton = instances.is_empty() ? nullptr : instances[instances.size() - 1];
 	}
+}
+
+void McpFileManagerPlugin::setup() {
+	ERR_FAIL_NULL_MSG(EditorNode::get_singleton(), "File Manager plugin setup requires an editor instance.");
+	add_tool_menu_item("File Manager", callable_mp(this, &McpFileManagerPlugin::_open_manager));
+	// Shortcut default Ctrl+Shift+F, tercatat di EditorSettings agar bisa diubah user.
+	EditorSettings *es = EditorSettings::get_singleton();
+	if (es && !es->has_setting("shortcuts/mcp_file_manager")) {
+		Ref<InputEventKey> k;
+		k.instantiate();
+		k->set_pressed(true);
+		k->set_keycode(Key::F);
+		k->set_ctrl_pressed(true);
+		k->set_shift_pressed(true);
+		es->set_initial_value("shortcuts/mcp_file_manager", k, false);
+	}
+	set_process_unhandled_key_input(true);
 }
 
 void McpFileManagerPlugin::unhandled_key_input(const Ref<InputEvent> &p_event) {
@@ -1216,24 +1216,6 @@ void McpFileManagerPlugin::unhandled_key_input(const Ref<InputEvent> &p_event) {
 		_open_manager();
 		get_viewport()->set_input_as_handled();
 	}
-}
-
-void McpFileManagerPlugin::refresh_toolbar_icon() {
-	if (!toolbar_btn) {
-		return;
-	}
-	toolbar_btn->set_text("FM");
-	EditorInterface *ei = EditorInterface::get_singleton();
-	Control *base = ei ? ei->get_base_control() : nullptr;
-	if (base && base->has_theme_icon("Folder", "EditorIcons")) {
-		toolbar_btn->set_button_icon(base->get_theme_icon("Folder", "EditorIcons"));
-	}
-	// Kunci warna ikon ke putih di semua state: cegah tint dari theme induk.
-	toolbar_btn->add_theme_color_override("icon_normal_color", Color(1, 1, 1));
-	toolbar_btn->add_theme_color_override("icon_hover_color", Color(1, 1, 1));
-	toolbar_btn->add_theme_color_override("icon_pressed_color", Color(1, 1, 1));
-	toolbar_btn->add_theme_color_override("icon_focus_color", Color(1, 1, 1));
-	toolbar_btn->add_theme_color_override("icon_disabled_color", Color(1, 1, 1, 0.4));
 }
 
 void McpFileManagerPlugin::_open_manager() {
