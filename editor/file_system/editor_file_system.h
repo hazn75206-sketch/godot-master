@@ -281,6 +281,13 @@ class EditorFileSystem : public Node {
 	bool _can_import_file(const String &p_path);
 	Vector<String> _get_import_dest_paths(const String &p_path);
 
+	// Reimport ditunda ke idle frame berikutnya (dibatch) supaya operasi drop
+	// dari luar project (yang memicu copy_file) tidak memblokir main thread:
+	// preview drag langsung dibersihkan, import jalan setelahnya.
+	Vector<String> deferred_reimport_files;
+	bool deferred_reimport_queued = false;
+	void _flush_deferred_reimports();
+
 	bool reimport_on_missing_imported_files;
 
 	Vector<String> _get_dependencies(const String &p_path);

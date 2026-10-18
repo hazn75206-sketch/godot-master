@@ -3126,10 +3126,15 @@ Error EditorFileSystem::_copy_file(const String &p_from, const String &p_to) {
 			_scan_fs_changes(parent, sp, false);
 		}
 		_queue_refresh_filesystem();
-		// File dari luar project belum punya .import. Jalankan importir agar
-		// resource (gambar/audio/dll) langsung valid, bukan resource rusak.
+		// File dari luar project belum punya .import. Importir dijadwalkan
+		// setelah drop selesai (deferred, dibatch) supaya preview drag tidak
+		// menunggu proses import; resource tetap langsung valid setelahnya.
 		if (_can_import_file(p_to) && !FileAccess::exists(p_to + ".import")) {
-			reimport_files(Vector<String>{ p_to });
+			deferred_reimport_files.push_back(p_to);
+			if (!deferred_reimport_queued) {
+				deferred_reimport_queued = true;
+				callable_mp(this, &EditorFileSystem::_flush_deferred_reimports).call_deferred();
+			}
 		}
 		return OK;
 	}
@@ -3196,6 +3201,16 @@ Error EditorFileSystem::_copy_file(const String &p_from, const String &p_to) {
 		}
 	}
 	return OK;
+}
+
+void EditorFileSystem::_flush_deferred_reimports() {
+	deferred_reimport_queued = false;
+	if (deferred_reimport_files.is_empty()) {
+		return;
+	}
+	Vector<String> files = deferred_reimport_files;
+	deferred_reimport_files.clear();
+	reimport_files(files);
 }
 
 bool EditorFileSystem::_copy_directory(const String &p_from, const String &p_to, HashMap<String, String> *p_files) {

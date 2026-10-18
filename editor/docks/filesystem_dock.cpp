@@ -1434,6 +1434,32 @@ void FileSystemDock::_preview_invalidated(const String &p_path) {
 			}
 		}
 	}
+
+	// Mode pohon (default) juga perlu di-queue ulang: kalau preview pernah
+	// gagal (mis. gambar baru belum selesai di-import saat item dibuat),
+	// thumbnail tidak pernah diretry tanpa ini.
+	if (tree_update_id != 0) {
+		TreeItem *root = tree->get_root();
+		TreeItem *found = nullptr;
+		if (root) {
+			LocalVector<TreeItem *> pending;
+			pending.push_back(root);
+			while (!pending.is_empty()) {
+				TreeItem *item = pending[pending.size() - 1];
+				pending.remove_at(pending.size() - 1);
+				if (item->get_metadata(0) == p_path) {
+					found = item;
+					break;
+				}
+				for (TreeItem *child = item->get_first_child(); child; child = child->get_next()) {
+					pending.push_back(child);
+				}
+			}
+		}
+		if (found) {
+			EditorResourcePreview::get_singleton()->queue_resource_preview(p_path, callable_mp(this, &FileSystemDock::_tree_thumbnail_done).bind(tree_update_id, found->get_instance_id()));
+		}
+	}
 }
 
 void FileSystemDock::_fs_changed() {
