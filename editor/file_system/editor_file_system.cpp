@@ -3126,6 +3126,11 @@ Error EditorFileSystem::_copy_file(const String &p_from, const String &p_to) {
 			_scan_fs_changes(parent, sp, false);
 		}
 		_queue_refresh_filesystem();
+		// File dari luar project belum punya .import. Jalankan importir agar
+		// resource (gambar/audio/dll) langsung valid, bukan resource rusak.
+		if (_can_import_file(p_to) && !FileAccess::exists(p_to + ".import")) {
+			reimport_files(Vector<String>{ p_to });
+		}
 		return OK;
 	}
 	Ref<DirAccess> da = DirAccess::create(DirAccess::ACCESS_RESOURCES);

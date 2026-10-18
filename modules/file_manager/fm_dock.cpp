@@ -24,10 +24,7 @@
 #include "scene/gui/label.h"
 #include "scene/gui/option_button.h"
 #include "scene/gui/scroll_container.h"
-#include "scene/gui/texture_rect.h"
 #include "scene/main/window.h"
-#include "scene/gui/texture_rect.h"
-#include "scene/resources/image_texture.h"
 #include "servers/display/display_server.h"
 
 // DirAccess::make_dir_recursive is an instance method in this Godot version.
@@ -239,8 +236,8 @@ void McpFileManager::_open_path(const String &path) {
 		return;
 	}
 	String ext = path.get_extension().to_lower();
+	// Gambar tidak dibuka/dipratinjau saat diklik (fitur pratinjau dihapus).
 	if (ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "webp" || ext == "bmp" || ext == "gif") {
-		_show_preview(path);
 		return;
 	}
 	if (ext == "zip" || ext == "tar" || ext == "gz" || ext == "tgz" || ext == "rar") {
@@ -668,59 +665,6 @@ void McpFileManager::_on_extract() {
 	_do_extract(sel[0]);
 }
 
-void McpFileManager::_show_preview(const String &p_path) {
-	Ref<Image> img;
-	img.instantiate();
-	if (img->load(p_path) != OK) {
-		status_label->set_text("Gagal membuka gambar.");
-		return;
-	}
-	preview_base = Vector2(img->get_width(), img->get_height());
-	preview_zoom = 1.0f;
-	if (preview_dlg == nullptr) {
-		preview_dlg = memnew(AcceptDialog);
-		preview_dlg->set_title(p_path.get_file());
-		VBoxContainer *vb = memnew(VBoxContainer);
-		preview_dlg->add_child(vb);
-		HBoxContainer *zb = memnew(HBoxContainer);
-		zb->set_alignment(BoxContainer::ALIGNMENT_CENTER);
-		vb->add_child(zb);
-		Button *zin = memnew(Button);
-		zin->set_text("+");
-		zin->connect("pressed", callable_mp(this, &McpFileManager::_on_preview_zoom).bind(1.25f));
-		zb->add_child(zin);
-		preview_zoom_label = memnew(Label);
-		preview_zoom_label->set_text("100%");
-		zb->add_child(preview_zoom_label);
-		Button *zout = memnew(Button);
-		zout->set_text("-");
-		zout->connect("pressed", callable_mp(this, &McpFileManager::_on_preview_zoom).bind(0.8f));
-		zb->add_child(zout);
-		preview_tr = memnew(TextureRect);
-		preview_tr->set_expand_mode(TextureRect::EXPAND_IGNORE_SIZE);
-		preview_tr->set_stretch_mode(TextureRect::STRETCH_KEEP_ASPECT_CENTERED);
-		vb->add_child(preview_tr);
-		add_child(preview_dlg);
-	}
-	Ref<ImageTexture> tex;
-	tex.instantiate();
-	tex->set_image(img);
-	preview_tr->set_texture(tex);
-	_on_preview_zoom(1.0f);
-	preview_dlg->set_title(p_path.get_file());
-	preview_dlg->popup_centered();
-}
-
-void McpFileManager::_on_preview_zoom(float p_factor) {
-	preview_zoom = CLAMP(preview_zoom * p_factor, 0.1f, 8.0f);
-	if (preview_tr) {
-		preview_tr->set_custom_minimum_size(preview_base * preview_zoom);
-	}
-	if (preview_zoom_label) {
-		preview_zoom_label->set_text(vformat("%d%%", int(preview_zoom * 100.0f)));
-	}
-}
-
 void McpFileManager::_on_info() {
 	_show_info(_selected_paths());
 }
@@ -751,6 +695,7 @@ void McpFileManager::_on_input_confirm() {
 
 void McpFileManager::_do_copy(const Vector<String> &p_src, const String &p_dst_dir) {
 	int count = 0;
+	Vector<String> copied;
 	for (const String &s : p_src) {
 		String dst = p_dst_dir.rstrip("/") + "/" + s.get_file();
 		if (dst == s) {
@@ -760,12 +705,15 @@ void McpFileManager::_do_copy(const Vector<String> &p_src, const String &p_dst_d
 			status_label->set_text("Gagal menyalin: " + s);
 			return;
 		}
+		copied.push_back(dst);
 	}
+	_reimport_copied(copied);
 	status_label->set_text(vformat("Disalin %d item.", count));
 	EditorToaster::get_singleton()->popup_str(vformat("File manager: disalin %d item.", count));
 }
 
 bool McpFileManager::_do_move(const Vector<String> &p_src, const String &p_dst_dir) {
+	Vector<String> moved;
 	for (const String &s : p_src) {
 		String dst = p_dst_dir.rstrip("/") + "/" + s.get_file();
 		if (dst == s) {
@@ -779,10 +727,35 @@ bool McpFileManager::_do_move(const Vector<String> &p_src, const String &p_dst_d
 				return false;
 			}
 		}
+		moved.push_back(dst);
 	}
+	_reimport_copied(moved);
 	status_label->set_text("Dipindah.");
 	EditorToaster::get_singleton()->popup_str("File manager: dipindah.");
 	return true;
+}
+
+// File yang masuk ke project dari luar belum punya .import, jadi importir harus
+// dijalankan supaya resource (gambar/audio/dll) tidak tampil rusak.
+void McpFileManager::_reimport_copied(const Vector<String> &p_paths) {
+	EditorFileSystem *efs = EditorFileSystem::get_singleton();
+	if (!efs) {
+		return;
+	}
+	String proj = ProjectSettings::get_singleton()->globalize_path("res://").rstrip("/");
+	Vector<String> to_reimport;
+	for (const String &s : p_paths) {
+		if (!s.begins_with(proj + "/")) {
+			continue;
+		}
+		String res_path = "res://" + s.trim_prefix(proj).trim_prefix("/");
+		if (!FileAccess::exists(res_path + ".import")) {
+			to_reimport.push_back(res_path);
+		}
+	}
+	if (!to_reimport.is_empty()) {
+		efs->reimport_files(to_reimport);
+	}
 }
 
 void McpFileManager::_do_delete(const Vector<String> &p_src) {

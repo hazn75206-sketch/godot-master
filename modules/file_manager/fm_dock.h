@@ -13,7 +13,6 @@
 #include "scene/gui/line_edit.h"
 #include "scene/gui/option_button.h"
 #include "scene/gui/panel_container.h"
-#include "scene/gui/texture_rect.h"
 #include "scene/gui/tree.h"
 #include "core/templates/vector.h"
 
@@ -82,6 +81,7 @@ class McpFileManager : public PanelContainer {
 	String _icon_for(const String &p_name, bool p_dir) const;
 	void _do_copy(const Vector<String> &p_src, const String &p_dst_dir);
 	bool _do_move(const Vector<String> &p_src, const String &p_dst_dir);
+	void _reimport_copied(const Vector<String> &p_paths);
 	void _do_delete(const Vector<String> &p_src);
 	void _do_rename(const String &p_src, const String &p_new_name);
 	void _do_mkdir(const String &p_name);
@@ -109,16 +109,9 @@ class McpFileManager : public PanelContainer {
 	void _on_info();
 	void _on_confirm();
 	void _on_input_confirm();
-	void _show_preview(const String &p_path);
-	void _on_preview_zoom(float p_factor);
 	bool _compare(const Variant &p_a, const Variant &p_b, int p_mode);
 	void _apply_button_icons();
 
-	AcceptDialog *preview_dlg = nullptr;
-	TextureRect *preview_tr = nullptr;
-	Label *preview_zoom_label = nullptr;
-	Vector2 preview_base = Vector2(0, 0);
-	float preview_zoom = 1.0f;
 
 protected:
 	static void _bind_methods();
