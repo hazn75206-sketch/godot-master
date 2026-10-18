@@ -19,6 +19,7 @@
 #include "editor/gui/editor_toaster.h"
 #include "editor/gui/progress_dialog.h"
 #include "scene/gui/dialogs.h"
+#include "scene/gui/flow_container.h"
 #include "scene/gui/label.h"
 #include "scene/gui/option_button.h"
 #include "scene/gui/scroll_container.h"
@@ -75,7 +76,102 @@ Variant McpFileTree::get_drag_data(const Point2 &p_point) {
 		shown++;
 	}
 	set_drag_preview(preview);
+	// Preview bawaan engine tidak ikut keluar batas jendela FM (di-clip viewport
+	// asal). Overlay ini menjaga preview tetap terlihat saat pointer keluar.
+	_begin_screen_preview(files.size());
 	return dd;
+}
+
+void McpFileTree::_begin_screen_preview(int p_count) {
+	_clear_screen_preview();
+
+	EditorInterface *ei = EditorInterface::get_singleton();
+	Control *base = ei ? ei->get_base_control() : nullptr;
+	if (!base) {
+		return;
+	}
+
+	PanelContainer *overlay = memnew(PanelContainer);
+	overlay->set_mouse_filter(Control::MOUSE_FILTER_IGNORE);
+	VBoxContainer *box = memnew(VBoxContainer);
+	// Klik-tembus wajib: overlay tidak boleh dianggap sebagai target drop.
+	box->set_mouse_filter(Control::MOUSE_FILTER_IGNORE);
+	overlay->add_child(box);
+	Label *title = memnew(Label);
+	title->set_text(vformat("%d item (salin)", p_count));
+	box->add_child(title);
+	int shown = 0;
+	TreeItem *it = get_next_selected(nullptr);
+	while (it && shown < 3) {
+		Label *name = memnew(Label);
+		name->set_text(String(it->get_metadata(0)).get_file());
+		box->add_child(name);
+		it = get_next_selected(it);
+		shown++;
+	}
+
+	base->add_child(overlay);
+	overlay->hide();
+	overlay->move_to_front();
+	screen_preview_id = overlay->get_instance_id();
+	set_process_internal(true);
+}
+
+void McpFileTree::_update_screen_preview() {
+	Control *overlay = ObjectDB::get_instance<Control>(screen_preview_id);
+	if (!overlay) {
+		screen_preview_id = ObjectID();
+		set_process_internal(false);
+		return;
+	}
+	Viewport *vp = get_viewport();
+	EditorInterface *ei = EditorInterface::get_singleton();
+	Control *base = ei ? ei->get_base_control() : nullptr;
+	if (!vp || !base || !base->is_inside_tree()) {
+		overlay->hide();
+		return;
+	}
+	// Posisi kursor dari DisplayServer (koordinat layar) dipakai untuk dua hal:
+	// cek di dalam/luar jendela FM dan posisi overlay, supaya tidak bergantung
+	// pada viewport mana yang menerima event saat seret lintas jendela.
+	Vector2 screen_pos = DisplayServer::get_singleton()->mouse_get_position();
+	Vector2 local_mouse = vp->get_screen_transform().affine_inverse().xform(screen_pos);
+	bool inside = Rect2(Vector2(), vp->get_visible_rect().size).has_point(local_mouse);
+	if (inside) {
+		overlay->hide();
+		return;
+	}
+	Vector2 base_pos = base->get_screen_transform().affine_inverse().xform(screen_pos);
+	overlay->set_position(base_pos + Vector2(14, 14));
+	overlay->show();
+}
+
+void McpFileTree::_clear_screen_preview() {
+	Control *overlay = ObjectDB::get_instance<Control>(screen_preview_id);
+	if (overlay) {
+		overlay->queue_free();
+	}
+	screen_preview_id = ObjectID();
+}
+
+void McpFileTree::_notification(int p_what) {
+	if (p_what == NOTIFICATION_INTERNAL_PROCESS) {
+		if (screen_preview_id.is_null()) {
+			set_process_internal(false);
+			return;
+		}
+		Viewport *vp = get_viewport();
+		if (!vp || !vp->gui_is_dragging()) {
+			// Drag selesai/dibatalkan: bersihkan overlay.
+			_clear_screen_preview();
+			set_process_internal(false);
+			return;
+		}
+		_update_screen_preview();
+	} else if (p_what == NOTIFICATION_EXIT_TREE) {
+		_clear_screen_preview();
+		set_process_internal(false);
+	}
 }
 
 // -------------------------------------------------------------- McpFileManager
@@ -90,40 +186,19 @@ McpFileManager::McpFileManager() {
 	open_dir("/storage/emulated/0/Documents");
 }
 
-VBoxContainer *McpFileManager::_make_action(const char *p_icon, const char *p_label, const char *p_tip, void (McpFileManager::*p_method)()) {
-	VBoxContainer *vb = memnew(VBoxContainer);
-	vb->set_alignment(BoxContainer::ALIGNMENT_CENTER);
-	vb->set_mouse_filter(Control::MOUSE_FILTER_STOP);
-	vb->set_custom_minimum_size(Vector2(66, 54));
-	vb->set_tooltip_text(p_tip);
-	TextureRect *tr = memnew(TextureRect);
-	tr->set_custom_minimum_size(Vector2(28, 28));
-	tr->set_expand_mode(TextureRect::EXPAND_IGNORE_SIZE);
-	tr->set_stretch_mode(TextureRect::STRETCH_KEEP_ASPECT_CENTERED);
-	tr->set_mouse_filter(Control::MOUSE_FILTER_IGNORE);
-	tr->set_h_size_flags(Control::SIZE_SHRINK_CENTER);
+Button *McpFileManager::_make_action(const char *p_icon, const char *p_label, const char *p_tip, void (McpFileManager::*p_method)()) {
+	// Tombol flat standar editor (ikon tema + label), bukan tile kustom.
+	Button *b = memnew(Button);
+	b->set_text(p_label);
+	b->set_tooltip_text(p_tip);
+	b->set_flat(true);
 	if (has_theme_icon(p_icon, "EditorIcons")) {
-		tr->set_texture(get_theme_icon(p_icon, "EditorIcons"));
+		b->set_button_icon(get_theme_icon(p_icon, "EditorIcons"));
 	}
-	vb->add_child(tr);
-	action_icons.append(tr);
+	b->connect("pressed", callable_mp(this, p_method));
+	action_buttons.append(b);
 	action_icon_names.append(p_icon);
-	Label *lb = memnew(Label);
-	lb->set_text(p_label);
-	lb->set_horizontal_alignment(HORIZONTAL_ALIGNMENT_CENTER);
-	lb->add_theme_font_size_override("font_size", 11);
-	lb->set_mouse_filter(Control::MOUSE_FILTER_IGNORE);
-	vb->add_child(lb);
-	vb->connect("gui_input", callable_mp(this, &McpFileManager::_on_action_input).bind(callable_mp(this, p_method)));
-	return vb;
-}
-
-void McpFileManager::_on_action_input(const Ref<InputEvent> &p_event, const Callable &p_action) {
-	Ref<InputEventMouseButton> mb = p_event;
-	if (mb.is_valid() && mb->is_pressed() && mb->get_button_index() == MouseButton::LEFT) {
-		p_action.call();
-		accept_event();
-	}
+	return b;
 }
 
 void McpFileManager::_on_open_selected() {
@@ -165,16 +240,19 @@ void McpFileManager::_build_ui() {
 	root->add_child(nav);
 	btn_back = memnew(Button);
 	btn_back->set_tooltip_text("Kembali");
+	btn_back->set_flat(true);
 	btn_back->connect("pressed", callable_mp(this, &McpFileManager::_go_up));
 	nav->add_child(btn_back);
 	btn_back->set_name("NavBack");
 	btn_home = memnew(Button);
 	btn_home->set_tooltip_text("Proyek aktif");
+	btn_home->set_flat(true);
 	btn_home->connect("pressed", callable_mp(this, &McpFileManager::_on_home));
 	nav->add_child(btn_home);
 	btn_home->set_name("NavHome");
 	btn_refresh = memnew(Button);
 	btn_refresh->set_tooltip_text("Segarkan");
+	btn_refresh->set_flat(true);
 	btn_refresh->connect("pressed", callable_mp(this, &McpFileManager::_refresh));
 	nav->add_child(btn_refresh);
 	btn_refresh->set_name("NavRefresh");
@@ -222,9 +300,8 @@ void McpFileManager::_build_ui() {
 	list->connect("item_activated", callable_mp(this, &McpFileManager::_on_item_activated));
 	root->add_child(list);
 
-	HBoxContainer *actions = memnew(HBoxContainer);
-	actions->set_alignment(BoxContainer::ALIGNMENT_CENTER);
-	actions->add_theme_constant_override("separation", 6);
+	HFlowContainer *actions = memnew(HFlowContainer);
+	actions->set_alignment(FlowContainer::ALIGNMENT_CENTER);
 	root->add_child(actions);
 	actions->add_child(_make_action("FileBrowse", "Buka", "Buka", &McpFileManager::_on_open_selected));
 	actions->add_child(_make_action("ActionCopy", "Salin", "Salin", &McpFileManager::_on_copy));
@@ -366,10 +443,12 @@ void McpFileManager::_refresh() {
 		}
 		it->set_metadata(0, String(r["path"]));
 		it->set_tooltip_text(0, String(r["path"]));
-		// Feedback visual untuk item yang di-cut: redupkan.
+		// Feedback visual untuk item yang di-cut: redupkan (ikut warna teks tema
+		// supaya tetap terbaca di tema terang maupun gelap).
 		if (clipboard_cut && clipboard.has(String(r["path"]))) {
+			Color dim = get_theme_color(SNAME("font_color"), SNAME("Tree")) * Color(1, 1, 1, 0.45);
 			for (int c = 0; c < 4; c++) {
-				it->set_custom_color(c, Color(1, 1, 1, 0.45));
+				it->set_custom_color(c, dim);
 			}
 		}
 	}
@@ -442,11 +521,11 @@ void McpFileManager::_apply_button_icons() {
 	if (btn_home && has_theme_icon("FolderBrowse", "EditorIcons")) btn_home->set_button_icon(get_theme_icon("FolderBrowse", "EditorIcons"));
 	if (btn_refresh && has_theme_icon("Reload", "EditorIcons")) btn_refresh->set_button_icon(get_theme_icon("Reload", "EditorIcons"));
 
-	// Action VBox icons (dibuat di _make_action; guard theme belum siap).
-	for (int i = 0; i < action_icons.size() && i < action_icon_names.size(); i++) {
-		TextureRect *tr = action_icons[i];
-		if (tr && has_theme_icon(action_icon_names[i], "EditorIcons")) {
-			tr->set_texture(get_theme_icon(action_icon_names[i], "EditorIcons"));
+	// Action button icons (dibuat di _make_action; guard theme belum siap).
+	for (int i = 0; i < action_buttons.size() && i < action_icon_names.size(); i++) {
+		Button *b = action_buttons[i];
+		if (b && has_theme_icon(action_icon_names[i], "EditorIcons")) {
+			b->set_button_icon(get_theme_icon(action_icon_names[i], "EditorIcons"));
 		}
 	}
 
@@ -454,7 +533,7 @@ void McpFileManager::_apply_button_icons() {
 	// (Diterapkan di _refresh via _icon_for + has_theme_icon.)
 
 	// Segarkan juga icon tombol toolbar (bisa null kalau theme belum siap
-	// saat plugin _enter_tree; refresh jalan belakangan sehingga aman).
+	// saat plugin dibuat; refresh jalan belakangan sehingga aman).
 	McpFileManagerPlugin *plug = McpFileManagerPlugin::get_singleton();
 	if (plug) {
 		plug->refresh_toolbar_icon();
@@ -1077,24 +1156,12 @@ void McpFileManager::_bind_methods() {
 McpFileManagerPlugin *McpFileManagerPlugin::singleton = nullptr;
 Vector<McpFileManagerPlugin *> McpFileManagerPlugin::instances;
 
+// Registrasi di constructor, bukan _enter_tree: plugin C++ tidak menerima
+// hook _enter_tree di base 4.8-dev (hanya script/GDExtension).
 McpFileManagerPlugin::McpFileManagerPlugin() {
 	instances.push_back(this);
 	singleton = this;
-}
 
-McpFileManagerPlugin::~McpFileManagerPlugin() {
-	for (int i = instances.size() - 1; i >= 0; i--) {
-		if (instances[i] == this) {
-			instances.remove_at(i);
-			break;
-		}
-	}
-	if (singleton == this) {
-		singleton = instances.is_empty() ? nullptr : instances[instances.size() - 1];
-	}
-}
-
-void McpFileManagerPlugin::_enter_tree() {
 	add_tool_menu_item("File Manager", callable_mp(this, &McpFileManagerPlugin::_open_manager));
 	// Tombol 1-klik di toolbar atas (lebih gampang dari menu Project > Tools).
 	toolbar_btn = memnew(Button);
@@ -1117,19 +1184,19 @@ void McpFileManagerPlugin::_enter_tree() {
 	set_process_unhandled_key_input(true);
 }
 
-void McpFileManagerPlugin::_exit_tree() {
-	set_process_unhandled_key_input(false);
-	remove_tool_menu_item("File Manager");
-	if (toolbar_btn) {
-		remove_control_from_container(CONTAINER_TOOLBAR, toolbar_btn);
-		toolbar_btn = nullptr;
+McpFileManagerPlugin::~McpFileManagerPlugin() {
+	for (int i = instances.size() - 1; i >= 0; i--) {
+		if (instances[i] == this) {
+			instances.remove_at(i);
+			break;
+		}
 	}
-	if (win) {
-		win->hide();
+	if (singleton == this) {
+		singleton = instances.is_empty() ? nullptr : instances[instances.size() - 1];
 	}
 }
 
-void McpFileManagerPlugin::_unhandled_key_input(const Ref<InputEvent> &p_event) {
+void McpFileManagerPlugin::unhandled_key_input(const Ref<InputEvent> &p_event) {
 	EditorSettings *es = EditorSettings::get_singleton();
 	if (es == nullptr || p_event.is_null()) {
 		return;
@@ -1156,11 +1223,17 @@ void McpFileManagerPlugin::refresh_toolbar_icon() {
 		return;
 	}
 	toolbar_btn->set_text("FM");
-	Control *base = EditorInterface::get_singleton()->get_base_control();
+	EditorInterface *ei = EditorInterface::get_singleton();
+	Control *base = ei ? ei->get_base_control() : nullptr;
 	if (base && base->has_theme_icon("Folder", "EditorIcons")) {
 		toolbar_btn->set_button_icon(base->get_theme_icon("Folder", "EditorIcons"));
 	}
-	// Warna ikut tema editor (tanpa override putih hardcode).
+	// Kunci warna ikon ke putih di semua state: cegah tint dari theme induk.
+	toolbar_btn->add_theme_color_override("icon_normal_color", Color(1, 1, 1));
+	toolbar_btn->add_theme_color_override("icon_hover_color", Color(1, 1, 1));
+	toolbar_btn->add_theme_color_override("icon_pressed_color", Color(1, 1, 1));
+	toolbar_btn->add_theme_color_override("icon_focus_color", Color(1, 1, 1));
+	toolbar_btn->add_theme_color_override("icon_disabled_color", Color(1, 1, 1, 0.4));
 }
 
 void McpFileManagerPlugin::_open_manager() {

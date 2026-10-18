@@ -19,8 +19,19 @@
 
 // Tree 4 kolom yang bisa di-seret keluar sebagai file (format drop standar
 // FileSystem dock + flag fm_copy agar selalu COPY, bukan MOVE).
+// Preview bawaan engine di-clip oleh jendela asal; overlay di viewport editor
+// dipakai supaya selama seret lintas jendela preview tetap terlihat.
 class McpFileTree : public Tree {
 	GDCLASS(McpFileTree, Tree);
+
+	ObjectID screen_preview_id;
+
+	void _begin_screen_preview(int p_count);
+	void _update_screen_preview();
+	void _clear_screen_preview();
+
+protected:
+	void _notification(int p_what) override;
 
 public:
 	virtual Variant get_drag_data(const Point2 &p_point) override;
@@ -55,7 +66,7 @@ class McpFileManager : public PanelContainer {
 	Button *btn_back = nullptr;
 	Button *btn_home = nullptr;
 	Button *btn_refresh = nullptr;
-	Vector<TextureRect *> action_icons;
+	Vector<Button *> action_buttons;
 	Vector<String> action_icon_names;
 
 	void _build_ui();
@@ -84,8 +95,7 @@ class McpFileManager : public PanelContainer {
 	void _on_item_activated();
 	void _open_path(const String &p_path);
 	void _on_open_selected();
-	void _on_action_input(const Ref<InputEvent> &p_event, const Callable &p_action);
-	VBoxContainer *_make_action(const char *p_icon, const char *p_label, const char *p_tip, void (McpFileManager::*p_method)());
+	Button *_make_action(const char *p_icon, const char *p_label, const char *p_tip, void (McpFileManager::*p_method)());
 	void _on_search_changed(const String &p_text);
 	void _on_sort_changed(int p_idx);
 	void _on_copy();
@@ -111,8 +121,6 @@ class McpFileManager : public PanelContainer {
 
 protected:
 	static void _bind_methods();
-	void _enter_tree();
-	void _exit_tree();
 
 public:
 	void open_dir(const String &p_dir);
@@ -149,9 +157,7 @@ public:
 	~McpFileManagerPlugin();
 
 protected:
-	void _enter_tree();
-	void _exit_tree();
-	void _unhandled_key_input(const Ref<InputEvent> &p_event);
+	void unhandled_key_input(const Ref<InputEvent> &p_event) override;
 
 private:
 	static McpFileManagerPlugin *singleton;

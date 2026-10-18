@@ -3,7 +3,9 @@
 #ifdef TOOLS_ENABLED
 
 #include "editor/editor_node.h"
+#include "editor/docks/editor_dock.h"
 #include "editor/docks/editor_dock_manager.h"
+#include "scene/resources/theme.h"
 #include "core/config/project_settings.h"
 #include "core/variant/callable.h"
 #include "core/object/callable_mp.h"
@@ -834,22 +836,7 @@ void TermView::_notification(int p_what) {
 
 TermDock::TermDock() {
 	set_name("Terminal");
-}
 
-TermDock::~TermDock() {
-	_kill_child();
-}
-
-String TermDock::_project_dir() const {
-	return ProjectSettings::get_singleton()->globalize_path("res://");
-}
-
-void TermDock::_bind_methods() {
-	ClassDB::bind_method(D_METHOD("_append_data", "bytes"), &TermDock::_append_data);
-	ClassDB::bind_method(D_METHOD("_on_child_exit"), &TermDock::_on_child_exit);
-}
-
-void TermDock::_enter_tree() {
 	view = memnew(TermView);
 	view->set_custom_minimum_size(Vector2(0, 240));
 	view->set_v_size_flags(SIZE_EXPAND_FILL);
@@ -892,13 +879,30 @@ void TermDock::_enter_tree() {
 	btn_restart->set_tooltip_text("Matikan shell dan mulai baru");
 	btn_restart->connect("pressed", callable_mp(this, &TermDock::_on_restart));
 	bar->add_child(btn_restart);
-
-	_spawn();
 }
 
-void TermDock::_exit_tree() {
-	exiting = true;
+TermDock::~TermDock() {
 	_kill_child();
+}
+
+// UI dibangun di constructor; shell baru dijalankan saat dock masuk tree
+// (hook _enter_tree tidak ada di C++; notification adalah jalur resminya).
+void TermDock::_notification(int p_what) {
+	if (p_what == NOTIFICATION_ENTER_TREE) {
+		_spawn();
+	} else if (p_what == NOTIFICATION_EXIT_TREE) {
+		exiting = true;
+		_kill_child();
+	}
+}
+
+String TermDock::_project_dir() const {
+	return ProjectSettings::get_singleton()->globalize_path("res://");
+}
+
+void TermDock::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("_append_data", "bytes"), &TermDock::_append_data);
+	ClassDB::bind_method(D_METHOD("_on_child_exit"), &TermDock::_on_child_exit);
 }
 
 void TermDock::_spawn() {
@@ -1160,38 +1164,47 @@ void TermDock::_on_restart() {
 
 // ---------------------------------------------------------------- plugin ---
 
+// Registrasi dilakukan di constructor: EditorPlugin di base 4.8-dev tidak
+// memanggil hook _enter_tree untuk plugin C++ (hanya script/GDExtension),
+// sehingga dock tidak pernah terbuat kalau didaftarkan di sana.
 TermDockPlugin::TermDockPlugin() {
-	dock = nullptr;
+	dock = memnew(TermDock);
+	editor_dock = memnew(EditorDock);
+	editor_dock->set_title("Terminal");
+	editor_dock->set_default_slot(EditorDock::DOCK_SLOT_BOTTOM);
+	editor_dock->set_available_layouts(EditorDock::DOCK_LAYOUT_HORIZONTAL);
+	editor_dock->set_global(false);
+	editor_dock->set_transient(true);
+	editor_dock->add_child(dock);
+
+	EditorNode *editor = EditorNode::get_singleton();
+	if (editor) {
+		Ref<Theme> theme = editor->get_editor_theme();
+		if (theme.is_valid()) {
+			Ref<Texture2D> icon = theme->get_icon(SNAME("Terminal"), SNAME("EditorIcons"));
+			if (icon.is_valid()) {
+				editor_dock->set_dock_icon(icon);
+			}
+		}
+	}
+
+	add_dock(editor_dock);
+	add_tool_menu_item("Terminal", callable_mp(this, &TermDockPlugin::_show_terminal));
 }
 
 TermDockPlugin::~TermDockPlugin() {
 }
 
-void TermDockPlugin::_enter_tree() {
-	dock = memnew(TermDock);
-	add_control_to_bottom_panel(dock, "Terminal");
-	add_tool_menu_item("Terminal", callable_mp(this, &TermDockPlugin::_show_terminal));
-	// Fork ini pakai EditorDockManager: dock baru lahir closed sehingga
-	// tab tidak tampil. Daftarkan tab tanpa mencuri fokus panel.
-	if (EditorDockManager::get_singleton()) {
-		EditorDock *ed = EditorDockManager::get_singleton()->get_dock_by_name("Terminal");
-		if (ed) {
-			EditorDockManager::get_singleton()->open_dock(ed, false);
-		}
-	}
-}
-
 void TermDockPlugin::_show_terminal() {
-	if (dock) {
-		make_bottom_panel_item_visible(dock);
+	if (!editor_dock) {
+		return;
 	}
-}
-
-void TermDockPlugin::_exit_tree() {
-	remove_tool_menu_item("Terminal");
-	if (dock) {
-		remove_control_from_bottom_panel(dock);
-		dock = nullptr; // Editor yang mem-free panel.
+	// Jadikan tab Terminal tab aktif (sekaligus membuka panel bawah),
+	// lalu pastikan split-nya tidak dalam keadaan kolaps.
+	editor_dock->make_visible();
+	DockSplitContainer *center_split = EditorNode::get_center_split();
+	if (center_split) {
+		center_split->set_collapsed(false);
 	}
 }
 

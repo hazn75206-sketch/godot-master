@@ -147,8 +147,7 @@ class TermDock : public VBoxContainer {
 
 protected:
 	static void _bind_methods();
-	void _enter_tree();
-	void _exit_tree();
+	void _notification(int p_what) override;
 
 public:
 	TermDock();
@@ -159,16 +158,13 @@ class TermDockPlugin : public EditorPlugin {
 	GDCLASS(TermDockPlugin, EditorPlugin);
 
 	TermDock *dock = nullptr;
+	EditorDock *editor_dock = nullptr;
 
 	void _show_terminal();
 
 public:
 	TermDockPlugin();
 	~TermDockPlugin();
-
-protected:
-	void _enter_tree();
-	void _exit_tree();
 };
 
 #endif // TOOLS_ENABLED

@@ -779,7 +779,16 @@ InspectorDock::InspectorDock(EditorData &p_editor_data) {
 	Button *file_manager_button = memnew(Button);
 	file_manager_button->set_theme_type_variation(SceneStringName(FlatButton));
 	file_manager_button->set_tooltip_text(TTRC("Open File Manager."));
-	file_manager_button->set_button_icon(get_editor_theme_icon(SNAME("Folder")));
+	if (has_theme_icon(SNAME("Folder"), SNAME("EditorIcons"))) {
+		file_manager_button->set_button_icon(get_editor_theme_icon(SNAME("Folder")));
+	}
+	// Warna ikon dikunci putih di semua state, sama seperti tombol header lain.
+	// Tanpa ini ikon sempat tertint warna lain dari theme induk.
+	file_manager_button->add_theme_color_override("icon_normal_color", Color(1, 1, 1));
+	file_manager_button->add_theme_color_override("icon_hover_color", Color(1, 1, 1));
+	file_manager_button->add_theme_color_override("icon_pressed_color", Color(1, 1, 1));
+	file_manager_button->add_theme_color_override("icon_focus_color", Color(1, 1, 1));
+	file_manager_button->add_theme_color_override("icon_disabled_color", Color(1, 1, 1, 0.4));
 	file_manager_button->connect(SceneStringName(pressed), callable_mp_static(&McpFileManagerPlugin::open_file_manager));
 	button_hb->add_child(file_manager_button);
 #endif
