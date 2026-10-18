@@ -481,6 +481,12 @@ void InspectorDock::_notification(int p_what) {
 				forward_button->set_button_icon(get_editor_theme_icon(SNAME("Forward")));
 			}
 
+#ifdef TOOLS_ENABLED
+			if (file_manager_button) {
+				file_manager_button->set_button_icon(get_editor_theme_icon(SNAME("Folder")));
+			}
+#endif
+
 			const int icon_width = get_theme_constant(SNAME("class_icon_size"), EditorStringName(Editor));
 			backward_popup->add_theme_constant_override("icon_max_width", icon_width);
 
@@ -776,14 +782,11 @@ InspectorDock::InspectorDock(EditorData &p_editor_data) {
 	forward_button->connect(SceneStringName(pressed), callable_mp(this, &InspectorDock::_edit_forward));
 
 #ifdef TOOLS_ENABLED
-	Button *file_manager_button = memnew(Button);
+	file_manager_button = memnew(Button);
 	file_manager_button->set_theme_type_variation(SceneStringName(FlatButton));
 	file_manager_button->set_tooltip_text(TTRC("Open File Manager."));
-	if (has_theme_icon(SNAME("Folder"), SNAME("EditorIcons"))) {
-		file_manager_button->set_button_icon(get_editor_theme_icon(SNAME("Folder")));
-	}
-	// Warna ikon dikunci putih di semua state, sama seperti tombol header lain.
-	// Tanpa ini ikon sempat tertint warna lain dari theme induk.
+	// Ikon dipasang di NOTIFICATION_THEME_CHANGED (ikon tema belum tersedia
+	// saat constructor). Warna ikon dikunci putih di semua state.
 	file_manager_button->add_theme_color_override("icon_normal_color", Color(1, 1, 1));
 	file_manager_button->add_theme_color_override("icon_hover_color", Color(1, 1, 1));
 	file_manager_button->add_theme_color_override("icon_pressed_color", Color(1, 1, 1));

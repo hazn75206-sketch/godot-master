@@ -81,6 +81,9 @@ class InspectorDock : public EditorDock {
 	Button *backward_button = nullptr;
 	PopupMenu *backward_popup = nullptr;
 	Button *forward_button = nullptr;
+#ifdef TOOLS_ENABLED
+	Button *file_manager_button = nullptr;
+#endif
 
 	EditorFileDialog *load_resource_dialog = nullptr;
 	CreateDialog *new_resource_dialog = nullptr;

@@ -2,6 +2,7 @@
 
 #include "fm_dock.h"
 
+#include "core/input/input.h"
 #include "core/input/input_enums.h"
 #include "core/input/input_event.h"
 #include "core/io/dir_access.h"
@@ -48,7 +49,13 @@ Variant McpFileTree::get_drag_data(const Point2 &p_point) {
 	Array files;
 	TreeItem *it = get_next_selected(nullptr);
 	while (it) {
-		files.append(it->get_metadata(0));
+		String path = it->get_metadata(0);
+		// Konvensi drag FileSystemDock: path folder diakhiri "/" agar dikenali
+		// sebagai folder (copy_directory), bukan file (copy_file) yang gagal.
+		if (DirAccess::exists(path)) {
+			path += "/";
+		}
+		files.append(path);
 		it = get_next_selected(it);
 	}
 	if (files.is_empty()) {
@@ -161,8 +168,10 @@ void McpFileTree::_notification(int p_what) {
 			return;
 		}
 		Viewport *vp = get_viewport();
-		if (!vp || !vp->gui_is_dragging()) {
-			// Drag selesai/dibatalkan: bersihkan overlay.
+		// Bersihkan overlay saat drag berakhir, dibatalkan, atau saat tombol
+		// sentuh sudah dilepas (fallback kalau state drag engine nyangkut,
+		// mis. karena drop gagal) supaya preview tidak tertinggal di layar.
+		if (!vp || !vp->gui_is_dragging() || !Input::get_singleton()->is_mouse_button_pressed(MouseButton::LEFT)) {
 			_clear_screen_preview();
 			set_process_internal(false);
 			return;
