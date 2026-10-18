@@ -31,7 +31,7 @@ class McpFileTree : public Tree {
 	void _clear_screen_preview();
 
 protected:
-	void _notification(int p_what) override;
+	void _notification(int p_what);
 
 public:
 	virtual Variant get_drag_data(const Point2 &p_point) override;
