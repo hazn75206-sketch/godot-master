@@ -60,6 +60,7 @@ import org.godotengine.godot.io.FilePicker
 import org.godotengine.godot.io.StorageScope
 import org.godotengine.godot.io.directory.DirectoryAccessHandler
 import org.godotengine.godot.io.file.FileAccessHandler
+import org.godotengine.godot.mcp.McpServerService
 import org.godotengine.godot.nativeapi.GodotNativeBridge
 import org.godotengine.godot.plugin.AndroidRuntimePlugin
 import org.godotengine.godot.plugin.GodotPlugin
@@ -763,7 +764,9 @@ class Godot private constructor(val context: Context) {
 		for (plugin in pluginRegistry.allPlugins) {
 			plugin.onMainPause()
 		}
-		renderView?.onActivityPaused()
+		if (!keepEngineAliveForMcp()) {
+			renderView?.onActivityPaused()
+		}
 		mSensorManager?.unregisterListener(godotInputHandler)
 	}
 
@@ -776,7 +779,16 @@ class Godot private constructor(val context: Context) {
 		for (plugin in pluginRegistry.allPlugins) {
 			plugin.onMainStop()
 		}
-		renderView?.onActivityStopped()
+		if (!keepEngineAliveForMcp()) {
+			renderView?.onActivityStopped()
+		}
+	}
+
+	private fun keepEngineAliveForMcp(): Boolean {
+		if (isProjectManagerHint()) {
+			return false
+		}
+		return McpServerService.keepAliveMcp()
 	}
 
 	fun onDestroy(primaryHost: GodotHost) {

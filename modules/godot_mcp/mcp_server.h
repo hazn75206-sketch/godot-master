@@ -92,6 +92,7 @@ private:
 	bool notch_watched = false;
 	uint64_t last_tick = 0;
 	uint64_t last_fs_poll_msec = 0;
+	uint64_t last_pushed_error_seq = 0;
 	bool was_playing = false;
 
 	String protocol_version = "2024-11-05";

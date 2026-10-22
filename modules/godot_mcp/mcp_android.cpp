@@ -27,6 +27,14 @@ extern "C" JNIEXPORT jstring JNICALL Java_org_godotengine_godot_mcp_McpServerSer
 	return env->NewStringUTF(url.utf8().get_data());
 }
 
+// Called from Java (Godot.onPause/onStop): keep the editor render/main loop
+// running in the background while the MCP server is active, so tools still
+// respond instead of waiting forever on the main thread.
+extern "C" JNIEXPORT jboolean JNICALL Java_org_godotengine_godot_mcp_McpServerService_keepAliveMcp(JNIEnv *env, jclass clazz) {
+	McpServer *s = McpServer::get_singleton();
+	return (s && s->is_running()) ? JNI_TRUE : JNI_FALSE;
+}
+
 static jobject mcp_get_activity(JNIEnv *env) {
 	OS_Android *os = OS_Android::get_singleton();
 	if (!os || !os->get_godot_java()) {

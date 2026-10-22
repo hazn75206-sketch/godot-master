@@ -8,6 +8,7 @@
 #include "scene/resources/style_box_flat.h"
 #include "core/config/project_settings.h"
 #include "core/crypto/crypto_core.h"
+#include "core/error/error_list.h"
 #include "core/error/error_macros.h"
 #include "core/math/math_funcs.h"
 #include "core/input/input.h"
@@ -16,6 +17,7 @@
 #include "core/io/resource_loader.h"
 #include "editor/editor_undo_redo_manager.h"
 #include "core/os/os.h"
+#include "core/os/thread.h"
 #include "core/os/time.h"
 #include "core/string/ustring.h"
 #include "core/io/json.h"
@@ -35,6 +37,7 @@
 #include "core/input/input_event.h"
 #include "core/object/class_db.h"
 #include "core/io/resource_uid.h"
+#include "core/templates/list.h"
 #include "modules/gdscript/gdscript.h"
 
 #include <mutex>
@@ -49,21 +52,68 @@
 struct McpLogLine {
 	uint64_t msec = 0;
 	String text;
+	String file;
+	int line = 0;
+	String function;
+	uint64_t error_seq = 0;
 	bool is_error = false;
 	bool is_warning = false;
 };
 
 static std::vector<McpLogLine> mcp_log_ring;
 static std::mutex mcp_log_mu;
-static const int MCP_LOG_RING_CAP = 500;
+static uint64_t mcp_log_error_counter = 0;
+static const int MCP_LOG_RING_CAP = 5000;
 
-void mcp_log_append(const String &p_text, bool p_error, bool p_warning) {
+void mcp_log_append(const String &p_text, bool p_error, bool p_warning, const String &p_file, int p_line, const String &p_func) {
 	std::lock_guard<std::mutex> lk(mcp_log_mu);
-	mcp_log_ring.push_back(McpLogLine{ Time::get_singleton()->get_ticks_msec(), p_text, p_error, p_warning });
+	McpLogLine line;
+	line.msec = Time::get_singleton()->get_ticks_msec();
+	line.text = p_text;
+	line.file = p_file;
+	line.line = p_line;
+	line.function = p_func;
+	line.is_error = p_error;
+	line.is_warning = p_warning;
+	if (p_error) {
+		line.error_seq = ++mcp_log_error_counter;
+	}
+	mcp_log_ring.push_back(line);
 	int overflow = (int)mcp_log_ring.size() - MCP_LOG_RING_CAP;
 	if (overflow > 0) {
 		mcp_log_ring.erase(mcp_log_ring.begin(), mcp_log_ring.begin() + overflow);
 	}
+}
+
+uint64_t mcp_log_error_seq() {
+	std::lock_guard<std::mutex> lk(mcp_log_mu);
+	return mcp_log_error_counter;
+}
+
+Array mcp_log_errors_since(uint64_t p_seq) {
+	Array out;
+	std::lock_guard<std::mutex> lk(mcp_log_mu);
+	for (const McpLogLine &l : mcp_log_ring) {
+		if (!l.is_error || l.error_seq <= p_seq) {
+			continue;
+		}
+		Dictionary d;
+		d["level"] = "error";
+		d["msec"] = (double)l.msec;
+		d["error_seq"] = (int64_t)l.error_seq;
+		d["text"] = l.text;
+		if (!l.file.is_empty()) {
+			d["file"] = l.file;
+		}
+		if (l.line > 0) {
+			d["line"] = l.line;
+		}
+		if (!l.function.is_empty()) {
+			d["function"] = l.function;
+		}
+		out.append(d);
+	}
+	return out;
 }
 
 #if defined(TOOLS_ENABLED)
@@ -84,6 +134,9 @@ Variant mcp_tool_ret_json(const Variant &p_value) {
 // new/modified scenes, scripts and assets show up immediately (no game run
 // or app focus event needed, which never happen on the Android editor).
 static void _mcp_refresh_editor() {
+	if (!Thread::is_main_thread()) {
+		return;
+	}
 	EditorNode *en = EditorNode::get_singleton();
 	if (en) {
 		en->refresh_external_changes();
@@ -100,7 +153,104 @@ static void _mcp_log_err_cb(void *p_ud, const char *p_func, const char *p_file, 
 	if (p_verbose_error && *p_verbose_error) {
 		text += "\n" + String(p_verbose_error);
 	}
-	mcp_log_append(text, p_type != ERR_HANDLER_WARNING, p_type == ERR_HANDLER_WARNING);
+	mcp_log_append(text, p_type != ERR_HANDLER_WARNING, p_type == ERR_HANDLER_WARNING, String(p_file ? p_file : ""), p_line, String(p_func ? p_func : ""));
+}
+
+struct McpCapturedErrors {
+	Array errors;
+	Array warnings;
+};
+
+static void _mcp_capture_cb(void *p_ud, const char *p_func, const char *p_file, int p_line, const char *p_error, const char *p_verbose_error, bool p_editor_notify, ErrorHandlerType p_type) {
+	McpCapturedErrors *cap = static_cast<McpCapturedErrors *>(p_ud);
+	if (!cap) {
+		return;
+	}
+	Dictionary d;
+	d["func"] = String(p_func ? p_func : "");
+	d["file"] = String(p_file ? p_file : "");
+	d["line"] = p_line;
+	d["message"] = String(p_error ? p_error : "");
+	if (p_verbose_error && *p_verbose_error) {
+		d["details"] = String(p_verbose_error);
+	}
+	if (p_type == ERR_HANDLER_WARNING) {
+		cap->warnings.append(d);
+	} else {
+		cap->errors.append(d);
+	}
+}
+
+static void _mcp_capture_begin(ErrorHandlerList &r_handler, McpCapturedErrors &r_cap) {
+	r_handler.errfunc = _mcp_capture_cb;
+	r_handler.userdata = &r_cap;
+	add_error_handler(&r_handler);
+}
+
+static void _mcp_capture_end(ErrorHandlerList &r_handler) {
+	remove_error_handler(&r_handler);
+}
+
+// Human-readable summary of captured engine errors, with file:line when the
+// engine reported it. Used by scene/resource validation failures.
+static String _mcp_format_capture(const McpCapturedErrors &p_cap, int p_max = 12) {
+	String out;
+	int total = p_cap.errors.size();
+	int shown = MIN(total, p_max);
+	for (int i = 0; i < shown; i++) {
+		Dictionary d = p_cap.errors[i];
+		String file = d.get("file", String());
+		int line = d.get("line", 0);
+		out += "\n- " + String(d.get("message", String()));
+		if (!file.is_empty() && file != "<unknown>") {
+			out += vformat(" (%s:%d)", file, line);
+		}
+	}
+	if (total > shown) {
+		out += vformat("\n- ... (%d error lain)", total - shown);
+	}
+	if (total == 0) {
+		out = String();
+	}
+	return out;
+}
+
+// Resolve "uid://..." to a res:// path; other paths pass through unchanged.
+static String _mcp_resolve_uid_path(const String &p_path) {
+	if (!p_path.begins_with("uid://")) {
+		return p_path;
+	}
+	ResourceUID *uid = ResourceUID::get_singleton();
+	if (!uid || !uid->has_id(uid->text_to_id(p_path))) {
+		return p_path;
+	}
+	return uid->get_id_path(uid->text_to_id(p_path));
+}
+
+struct McpSceneCheck {
+	bool ok = false;
+	String reason;
+	Ref<PackedScene> scene;
+	McpCapturedErrors captured;
+};
+
+static McpSceneCheck _mcp_check_packed_scene(const String &p_path, bool p_replace_cache = false) {
+	McpSceneCheck res;
+	ErrorHandlerList handler;
+	_mcp_capture_begin(handler, res.captured);
+	Ref<PackedScene> ps = ResourceLoader::load(p_path, "PackedScene", p_replace_cache ? ResourceLoader::CACHE_MODE_REPLACE : ResourceLoader::CACHE_MODE_REUSE);
+	_mcp_capture_end(handler);
+	res.scene = ps;
+	if (ps.is_null()) {
+		res.reason = "ResourceLoader mengembalikan null (gagal parse/load)";
+		return res;
+	}
+	if (!ps->can_instantiate()) {
+		res.reason = "PackedScene tidak bisa di-instance (resource rusak/bergantung pada resource yang gagal dimuat)";
+		return res;
+	}
+	res.ok = true;
+	return res;
 }
 
 // ----------------------------------------------------------------- Helpers
@@ -412,17 +562,32 @@ static String _tscn_set_header_uid(const String &p_content, const String &p_uid)
 		end = p_content.length();
 	}
 	String header = p_content.substr(h, end - h);
-	String new_header;
-	if (header.contains("uid=")) {
-		int p = header.find("uid=");
-		int q = header.find("\"", p + 4);
-		if (q == -1) {
-			return p_content;
+	// Remove every existing uid token first: it may sit inside or outside the
+	// [gd_scene ...] brackets (the latter produced invalid headers before).
+	int up = -1;
+	while ((up = header.find("uid=")) != -1) {
+		int q1 = header.find("\"", up + 4);
+		int q2 = q1 == -1 ? -1 : header.find("\"", q1 + 1);
+		if (q2 == -1) {
+			int stop = up + 4;
+			while (stop < header.length() && header[stop] != ' ' && header[stop] != ']') {
+				stop++;
+			}
+			header = header.substr(0, up) + header.substr(stop);
+		} else {
+			header = header.substr(0, up) + header.substr(q2 + 1);
 		}
-		new_header = header.substr(0, p) + "uid=\"" + p_uid + "\"" + header.substr(q + 1);
-	} else {
-		new_header = header + " uid=\"" + p_uid + "\"";
+		while (header.contains("  ")) {
+			header = header.replace("  ", " ");
+		}
 	}
+	int close = header.rfind("]");
+	if (close == -1) {
+		return p_content;
+	}
+	String attrs = header.substr(0, close).strip_edges();
+	String tail = header.substr(close);
+	String new_header = attrs + " uid=\"" + p_uid + "\"" + tail;
 	return p_content.substr(0, h) + new_header + p_content.substr(end);
 }
 
@@ -524,6 +689,10 @@ static Variant _tool_game_tree(const Dictionary &p_args) {
 	}
 	Node *root = st->get_current_scene();
 	if (!root) {
+		EditorInterface *ei = EditorInterface::get_singleton();
+		if (ei && ei->is_playing_scene()) {
+			return mcp_tool_ret_error("Game berjalan, tetapi hierarki scene game tidak dapat dibaca dari proses editor (game berjalan terpisah). Gunakan debugger_errors / errors_summary untuk error runtime.");
+		}
 		return mcp_tool_ret_error("Game tidak berjalan (tidak ada current scene).");
 	}
 	Dictionary tree;
@@ -539,18 +708,28 @@ static Variant _tool_open_scene(const Dictionary &p_args) {
 	if (!ei) {
 		return mcp_tool_ret_error("Editor tidak tersedia.");
 	}
-	String path = p_args.get("path", String());
+	String path = _mcp_resolve_uid_path(p_args.get("path", String()));
 	if (path.is_empty() || !path.ends_with(".tscn") || !FileAccess::exists(path)) {
 		return mcp_tool_ret_error(vformat("Scene tidak ditemukan: %s", path));
 	}
-	// Buka scene.
-	ei->open_scene_from_path(path);
-	// Validasi: cek apakah scene benar-benar terbuka (root valid).
-	Node *root = ei->get_edited_scene_root();
-	if (!root) {
-		return mcp_tool_ret_error(vformat("Scene gagal dibuka (invalid/corrupt): %s", path));
+	String norm = ProjectSettings::get_singleton()->localize_path(path);
+	McpSceneCheck check = _mcp_check_packed_scene(norm, true);
+	if (!check.ok) {
+		return mcp_tool_ret_error(vformat("Scene gagal dibuka (invalid/corrupt): %s\nAlasan: %s%s", path, check.reason, _mcp_format_capture(check.captured)));
 	}
-	return mcp_tool_ret_text(vformat("Scene dibuka: %s", path));
+	Node *current = ei->get_edited_scene_root();
+	String current_path = current ? current->get_scene_file_path() : String();
+	if (!current_path.is_empty() && (current_path == path || current_path == norm)) {
+		return mcp_tool_ret_text(vformat("Scene sudah terbuka: %s", current_path));
+	}
+	ei->open_scene_from_path(norm);
+	Node *root = ei->get_edited_scene_root();
+	String opened = root ? root->get_scene_file_path() : String();
+	if (!root || (opened != path && opened != norm)) {
+		String shown = opened.is_empty() ? String() : vformat("\nEditor masih menampilkan: %s", opened);
+		return mcp_tool_ret_error(vformat("Scene gagal dibuka: %s\nAlasan: editor tidak mengganti scene aktif (perubahan belum disimpan, atau loader menolak scene).%s%s", path, shown, _mcp_format_capture(check.captured)));
+	}
+	return mcp_tool_ret_text(vformat("Scene dibuka: %s", opened));
 }
 
 static Variant _tool_save_scene(const Dictionary &p_args) {
@@ -636,7 +815,7 @@ static Variant _tool_instance_node(const Dictionary &p_args) {
 	if (!ei || !root) {
 		return mcp_tool_ret_error("Tidak ada scene yang terbuka.");
 	}
-	String scene_path = p_args.get("scene", String());
+	String scene_path = _mcp_resolve_uid_path(p_args.get("scene", String()));
 	String name = p_args.get("name", String());
 	String parent_path = p_args.get("parent", String());
 	if (scene_path.is_empty() || !FileAccess::exists(scene_path)) {
@@ -646,11 +825,12 @@ static Variant _tool_instance_node(const Dictionary &p_args) {
 	if (!parent) {
 		return mcp_tool_ret_error(vformat("Parent tidak ditemukan: %s", parent_path));
 	}
-	Ref<PackedScene> ps = ResourceLoader::load(scene_path);
-	if (ps.is_null()) {
-		return mcp_tool_ret_error(vformat("Gagal memuat scene (bukan PackedScene?): %s", scene_path));
+	String norm = ProjectSettings::get_singleton()->localize_path(scene_path);
+	McpSceneCheck check = _mcp_check_packed_scene(norm, true);
+	if (!check.ok) {
+		return mcp_tool_ret_error(vformat("Gagal memuat scene (invalid/corrupt): %s\nAlasan: %s%s", scene_path, check.reason, _mcp_format_capture(check.captured)));
 	}
-	Node *node = ps->instantiate();
+	Node *node = check.scene->instantiate();
 	if (!node) {
 		return mcp_tool_ret_error(vformat("Gagal meng-instance: %s", scene_path));
 	}
@@ -1019,16 +1199,43 @@ static Variant _tool_attach_script(const Dictionary &p_args) {
 	return mcp_tool_ret_text(vformat("Script %s dilampirkan ke %s", script_path, node->get_path()));
 }
 
+static String s_mcp_last_run_scene;
+
+static Variant _mcp_run_scene_checked(EditorInterface *p_ei, const String &p_path) {
+	if (p_ei->is_playing_scene()) {
+		return mcp_tool_ret_error("Game sudah berjalan.");
+	}
+	if (p_path.is_empty() || !FileAccess::exists(p_path)) {
+		return mcp_tool_ret_error(vformat("Scene tidak ditemukan: %s", p_path));
+	}
+	McpSceneCheck check = _mcp_check_packed_scene(p_path, true);
+	if (!check.ok) {
+		return mcp_tool_ret_error(vformat("Scene gagal dijalankan (invalid/corrupt): %s\nAlasan: %s%s", p_path, check.reason, _mcp_format_capture(check.captured)));
+	}
+	s_mcp_last_run_scene = p_path;
+	p_ei->play_custom_scene(p_path);
+	return mcp_tool_ret_text(vformat("Memulai scene %s", p_path));
+}
+
 static Variant _tool_run_main_scene(const Dictionary &p_args) {
 	EditorInterface *ei = EditorInterface::get_singleton();
 	if (!ei) {
 		return mcp_tool_ret_error("Editor tidak tersedia.");
 	}
+	String main_scene = _mcp_resolve_uid_path(ProjectSettings::get_singleton()->get_setting("application/run/main_scene", String()));
+	if (main_scene.is_empty()) {
+		return mcp_tool_ret_error("Main scene belum disetel di project.godot (application/run/main_scene).");
+	}
 	if (ei->is_playing_scene()) {
 		return mcp_tool_ret_error("Game sudah berjalan.");
 	}
+	McpSceneCheck check = _mcp_check_packed_scene(main_scene, true);
+	if (!check.ok) {
+		return mcp_tool_ret_error(vformat("Main scene gagal dijalankan (invalid/corrupt): %s\nAlasan: %s%s", main_scene, check.reason, _mcp_format_capture(check.captured)));
+	}
+	s_mcp_last_run_scene = main_scene;
 	ei->play_main_scene();
-	return mcp_tool_ret_text("Memulai main scene.");
+	return mcp_tool_ret_text(vformat("Memulai main scene: %s", main_scene));
 }
 
 static Variant _tool_run_custom_scene(const Dictionary &p_args) {
@@ -1036,15 +1243,9 @@ static Variant _tool_run_custom_scene(const Dictionary &p_args) {
 	if (!ei) {
 		return mcp_tool_ret_error("Editor tidak tersedia.");
 	}
-	String path = p_args.get("path", String());
-	if (path.is_empty() || !FileAccess::exists(path)) {
-		return mcp_tool_ret_error(vformat("Scene tidak ditemukan: %s", path));
-	}
-	if (ei->is_playing_scene()) {
-		return mcp_tool_ret_error("Game sudah berjalan.");
-	}
-	ei->play_custom_scene(path);
-	return mcp_tool_ret_text(vformat("Memulai scene %s", path));
+	String path = _mcp_resolve_uid_path(p_args.get("path", String()));
+	String norm = ProjectSettings::get_singleton()->localize_path(path);
+	return _mcp_run_scene_checked(ei, norm);
 }
 
 static Variant _tool_stop_game(const Dictionary &p_args) {
@@ -1071,9 +1272,11 @@ static Variant _tool_game_state(const Dictionary &p_args) {
 		st["current_scene"] = root->get_scene_file_path();
 	}
 	if (ei->is_playing_scene()) {
-		SceneTree *gt = SceneTree::get_singleton();
-		Node *groot = gt ? gt->get_current_scene() : nullptr;
-		st["playing_scene"] = groot ? groot->get_scene_file_path() : String("<runtime>");
+		String playing = s_mcp_last_run_scene;
+		if (playing.is_empty()) {
+			playing = _mcp_resolve_uid_path(ProjectSettings::get_singleton()->get_setting("application/run/main_scene", String()));
+		}
+		st["playing_scene"] = playing;
 	} else {
 		st["playing_scene"] = String();
 	}
@@ -1638,60 +1841,79 @@ static Variant _tool_batch_execute(const Dictionary &p_args) {
 	return out;
 }
 
-static Variant _tool_logs_read(const Dictionary &p_args) {
-	String level = p_args.get("level", "all");
-	int requested = (int)p_args.get("limit", 200);
-	int limit = requested > 1 ? requested : 1;
-	bool want_error = level == "all" || level == "error";
-	bool want_warning = level == "all" || level == "warning";
-	bool want_info = level == "all" || level == "info";
+static Array _mcp_log_read_lines(const String &p_level, int p_limit, double p_since_msec, bool p_clear) {
+	bool want_error = p_level == "all" || p_level == "error";
+	bool want_warning = p_level == "all" || p_level == "warning";
+	bool want_info = p_level == "all" || p_level == "info";
 	Array lines;
 	std::lock_guard<std::mutex> lk(mcp_log_mu);
-	int total = (int)mcp_log_ring.size();
-	int start = 0;
-	if (total > limit) {
-		start = total - limit;
-	}
-	for (int i = start; i < total; i++) {
-		const McpLogLine &l = mcp_log_ring[i];
+	for (const McpLogLine &l : mcp_log_ring) {
 		bool keep = l.is_error ? want_error : (l.is_warning ? want_warning : want_info);
 		if (!keep) {
+			continue;
+		}
+		if (p_since_msec > 0 && (double)l.msec < p_since_msec) {
 			continue;
 		}
 		Dictionary d;
 		d["level"] = l.is_error ? "error" : (l.is_warning ? "warning" : "info");
 		d["text"] = l.text;
 		d["msec"] = (double)l.msec;
+		if (!l.file.is_empty()) {
+			d["file"] = l.file;
+		}
+		if (l.line > 0) {
+			d["line"] = l.line;
+		}
+		if (!l.function.is_empty()) {
+			d["function"] = l.function;
+		}
 		lines.append(d);
 	}
-	return mcp_tool_ret_json(lines);
+	if (p_limit > 0 && lines.size() > p_limit) {
+		Array tail;
+		for (int i = lines.size() - p_limit; i < lines.size(); i++) {
+			tail.append(lines[i]);
+		}
+		lines = tail;
+	}
+	if (p_clear) {
+		mcp_log_ring.clear();
+	}
+	return lines;
 }
 
-static Variant _tool_debugger_errors(const Dictionary &p_args) {
-	// Reads the editor Debugger panel: errors/warnings reported by a running
-	// game (which are delivered over the debugger protocol and are NOT seen
-	// by the in-process error handler used by logs_read).
-	// Args: level (all|error|warning), dedup (gabung pesan identik + count),
-	// limit (maks entri per respons, 0 = tanpa batas), stack (sertakan
-	// stack_dump live per session), clear (bersihkan panel dulu).
-	EditorDebuggerNode *edn = EditorDebuggerNode::get_singleton();
+static Variant _tool_logs_read(const Dictionary &p_args) {
 	String level = p_args.get("level", "all");
-	bool dedup = p_args.get("dedup", true);
-	int limit = int(p_args.get("limit", 200));
-	bool want_stack = p_args.get("stack", false);
-	if (p_args.get("clear", false)) {
-		int cleared = 0;
-		for (int i = 0; i < 32; i++) { // Sessions are a small fixed set of tabs.
-			ScriptEditorDebugger *dbg = edn->get_debugger(i);
-			if (!dbg) {
-				break;
-			}
-			dbg->clear_errors_list();
-			cleared++;
-		}
-		return mcp_tool_ret_text(vformat("Panel debugger dibersihkan (%d session).", cleared));
+	int limit = (int)p_args.get("limit", 0);
+	double since_msec = (double)p_args.get("since_msec", 0.0);
+	bool clear = p_args.get("clear", false);
+	return mcp_tool_ret_json(_mcp_log_read_lines(level, limit, since_msec, clear));
+}
+
+static int _mcp_debugger_clear() {
+	EditorDebuggerNode *edn = EditorDebuggerNode::get_singleton();
+	if (!edn) {
+		return 0;
 	}
+	int cleared = 0;
+	for (int i = 0; i < 32; i++) { // Sessions are a small fixed set of tabs.
+		ScriptEditorDebugger *dbg = edn->get_debugger(i);
+		if (!dbg) {
+			break;
+		}
+		dbg->clear_errors_list();
+		cleared++;
+	}
+	return cleared;
+}
+
+static Array _mcp_debugger_sessions(const String &p_level, bool p_dedup, int p_limit, bool p_want_stack) {
 	Array out;
+	EditorDebuggerNode *edn = EditorDebuggerNode::get_singleton();
+	if (!edn) {
+		return out;
+	}
 	for (int i = 0; i < 32; i++) { // Sessions are a small fixed set of tabs.
 		ScriptEditorDebugger *dbg = edn->get_debugger(i);
 		if (!dbg) {
@@ -1710,11 +1932,11 @@ static Variant _tool_debugger_errors(const Dictionary &p_args) {
 			TreeItem *item = tree->get_root()->get_first_child();
 			while (item) {
 				String lv = item->has_meta("_is_warning") ? "warning" : "error";
-				if ((level == "error" && lv != "error") || (level == "warning" && lv != "warning")) {
+				if ((p_level == "error" && lv != "error") || (p_level == "warning" && lv != "warning")) {
 					item = item->get_next();
 					continue;
 				}
-				if (limit > 0 && added >= limit) {
+				if (p_limit > 0 && added >= p_limit) {
 					break;
 				}
 				Dictionary e;
@@ -1739,7 +1961,7 @@ static Variant _tool_debugger_errors(const Dictionary &p_args) {
 				if (!details.is_empty()) {
 					e["details"] = details;
 				}
-				if (dedup) {
+				if (p_dedup) {
 					String key = lv + "|" + String(e["message"]) + "|" + JSON::stringify(details);
 					if (seen.has(key)) {
 						Dictionary prev = entries[int(seen[key])];
@@ -1756,7 +1978,7 @@ static Variant _tool_debugger_errors(const Dictionary &p_args) {
 			}
 		}
 		session["entries"] = entries;
-		if (want_stack) {
+		if (p_want_stack) {
 			Array frames;
 			Tree *sdump = dbg->get_stack_dump();
 			if (sdump && sdump->get_root()) {
@@ -1776,6 +1998,64 @@ static Variant _tool_debugger_errors(const Dictionary &p_args) {
 		}
 		out.append(session);
 	}
+	return out;
+}
+
+static Variant _tool_debugger_errors(const Dictionary &p_args) {
+	// Reads the editor Debugger panel: errors/warnings reported by a running
+	// game (which are delivered over the debugger protocol and are NOT seen
+	// by the in-process error handler used by logs_read).
+	// Args: level (all|error|warning), dedup (gabung pesan identik + count),
+	// limit (maks entri per respons, 0 = tanpa batas), stack (sertakan
+	// stack_dump live per session), clear (bersihkan panel dulu).
+	if (p_args.get("clear", false)) {
+		return mcp_tool_ret_text(vformat("Panel debugger dibersihkan (%d session).", _mcp_debugger_clear()));
+	}
+	String level = p_args.get("level", "all");
+	bool dedup = p_args.get("dedup", true);
+	int limit = int(p_args.get("limit", 0));
+	bool want_stack = p_args.get("stack", false);
+	return mcp_tool_ret_json(_mcp_debugger_sessions(level, dedup, limit, want_stack));
+}
+
+static Variant _tool_errors_summary(const Dictionary &p_args) {
+	String level = p_args.get("level", "all");
+	double since_msec = (double)p_args.get("since_msec", 0.0);
+	bool clear = p_args.get("clear", false);
+	Array editor = _mcp_log_read_lines(level, 0, since_msec, clear);
+	Array game = _mcp_debugger_sessions(level, p_args.get("dedup", true), 0, p_args.get("stack", false));
+	int editor_errors = 0;
+	int editor_warnings = 0;
+	for (int i = 0; i < editor.size(); i++) {
+		Dictionary d = editor[i];
+		String lv = d.get("level", String());
+		if (lv == "error") {
+			editor_errors++;
+		} else if (lv == "warning") {
+			editor_warnings++;
+		}
+	}
+	int game_errors = 0;
+	int game_warnings = 0;
+	for (int i = 0; i < game.size(); i++) {
+		Dictionary s = game[i];
+		Array entries = s.get("entries", Array());
+		for (int j = 0; j < entries.size(); j++) {
+			Dictionary e = entries[j];
+			if (String(e.get("level", String())) == "error") {
+				game_errors++;
+			} else {
+				game_warnings++;
+			}
+		}
+	}
+	Dictionary out;
+	out["editor"] = editor;
+	out["game"] = game;
+	out["editor_count"] = editor.size();
+	out["game_count"] = game.size();
+	out["error_count"] = editor_errors + game_errors;
+	out["warning_count"] = editor_warnings + game_warnings;
 	return mcp_tool_ret_json(out);
 }
 
@@ -1788,6 +2068,26 @@ static Variant _tool_refresh(const Dictionary &p_args) {
 	}
 	en->refresh_external_changes();
 	return Dictionary{ { "ok", true }, { "message", "Proyek disegarkan: pemindaian filesystem dijadwalkan; scene dan pengaturan proyek dimuat ulang dari disk." } };
+}
+
+static Variant _tool_undo(const Dictionary &p_args) {
+	(void)p_args;
+	EditorInterface *ei = EditorInterface::get_singleton();
+	if (!ei) {
+		return mcp_tool_ret_error("Editor tidak tersedia.");
+	}
+	bool ok = ei->get_editor_undo_redo()->undo();
+	return mcp_tool_ret_text(ok ? "Undo dijalankan." : "Tidak ada aksi untuk di-undo.");
+}
+
+static Variant _tool_redo(const Dictionary &p_args) {
+	(void)p_args;
+	EditorInterface *ei = EditorInterface::get_singleton();
+	if (!ei) {
+		return mcp_tool_ret_error("Editor tidak tersedia.");
+	}
+	bool ok = ei->get_editor_undo_redo()->redo();
+	return mcp_tool_ret_text(ok ? "Redo dijalankan." : "Tidak ada aksi untuk di-redo.");
 }
 
 static Variant _tool_duplicate_node(const Dictionary &p_args) {
@@ -1853,12 +2153,97 @@ static Variant _tool_execute_script(const Dictionary &p_args) {
 	scr->instance_create(inst.ptr());
 	Variant ret = Variant(inst.ptr()).call(StringName("__mcp_run__"));
 	String out = ret.get_type() == Variant::STRING ? String(ret) : JSON::stringify(ret);
-	if (out.length() > 4000) {
-		out = out.substr(0, 4000) + "\n...(dipotong)";
+	if (out.length() > 16000) {
+		out = out.substr(0, 16000) + "\n...(dipotong)";
 	}
 	// Script bebas bisa tulis file; segarkan tanpa poll.
 	_mcp_refresh_editor();
 	return mcp_tool_ret_text(out.is_empty() ? "(tidak ada return)" : out);
+}
+
+static Dictionary _mcp_check_script(const String &p_norm) {
+	Dictionary out;
+	out["path"] = p_norm;
+	McpCapturedErrors cap;
+	ErrorHandlerList handler;
+	_mcp_capture_begin(handler, cap);
+	Error err = OK;
+	Ref<GDScript> scr = ResourceLoader::load(p_norm, "GDScript");
+	if (scr.is_null()) {
+		err = ERR_FILE_CANT_OPEN;
+	} else {
+		Ref<FileAccess> f = FileAccess::open(p_norm, FileAccess::READ);
+		if (f.is_valid()) {
+			String disk = f->get_as_text();
+			if (disk != scr->get_source_code()) {
+				scr->set_source_code(disk);
+			}
+		}
+		err = scr->reload(true);
+	}
+	_mcp_capture_end(handler);
+	out["ok"] = err == OK;
+	out["error"] = err == OK ? String() : String(error_names[err]);
+	out["error_count"] = cap.errors.size();
+	out["warning_count"] = cap.warnings.size();
+	out["errors"] = cap.errors;
+	out["warnings"] = cap.warnings;
+	return out;
+}
+
+static Variant _tool_script_check(const Dictionary &p_args) {
+	String path = _mcp_resolve_uid_path(p_args.get("path", String()));
+	if (path.is_empty()) {
+		return mcp_tool_ret_error("Argumen 'path' wajib diisi (.gd).");
+	}
+	if (!path.ends_with(".gd")) {
+		return mcp_tool_ret_error("'path' harus diakhiri .gd");
+	}
+	if (!FileAccess::exists(path)) {
+		return mcp_tool_ret_error(vformat("Script tidak ditemukan: %s", path));
+	}
+	String norm = ProjectSettings::get_singleton()->localize_path(path);
+	return mcp_tool_ret_json(_mcp_check_script(norm));
+}
+
+static Variant _tool_resource_check(const Dictionary &p_args) {
+	String path = _mcp_resolve_uid_path(p_args.get("path", String()));
+	if (path.is_empty()) {
+		return mcp_tool_ret_error("Argumen 'path' wajib diisi.");
+	}
+	if (!FileAccess::exists(path)) {
+		return mcp_tool_ret_error(vformat("Resource tidak ditemukan: %s", path));
+	}
+	String norm = ProjectSettings::get_singleton()->localize_path(path);
+	McpCapturedErrors cap;
+	ErrorHandlerList handler;
+	_mcp_capture_begin(handler, cap);
+	Ref<Resource> res = ResourceLoader::load(norm);
+	_mcp_capture_end(handler);
+	Dictionary out;
+	out["path"] = norm;
+	out["ok"] = res.is_valid();
+	if (res.is_valid()) {
+		out["type"] = res->get_class();
+		PackedScene *ps = Object::cast_to<PackedScene>(res.ptr());
+		if (ps) {
+			out["can_instantiate"] = ps->can_instantiate();
+		}
+		List<String> deps;
+		ResourceLoader::get_dependencies(norm, &deps);
+		Array dep_array;
+		for (const String &d : deps) {
+			dep_array.append(d);
+		}
+		out["dependencies"] = dep_array;
+	} else {
+		out["reason"] = "ResourceLoader mengembalikan null (gagal parse/load)";
+	}
+	out["error_count"] = cap.errors.size();
+	out["warning_count"] = cap.warnings.size();
+	out["errors"] = cap.errors;
+	out["warnings"] = cap.warnings;
+	return mcp_tool_ret_json(out);
 }
 
 static void _glob_walk(const String &p_base, const String &p_dir, const String &p_pattern, Array &r_out, int p_limit) {
@@ -1900,6 +2285,34 @@ static Variant _tool_glob(const Dictionary &p_args) {
 	d["count"] = out.size();
 	d["files"] = out;
 	return mcp_tool_ret_json(d);
+}
+
+static Variant _tool_project_script_check(const Dictionary &p_args) {
+	String pattern = String(p_args.get("pattern", String("*.gd")));
+	if (pattern.is_empty()) {
+		pattern = "*.gd";
+	}
+	String base = String(p_args.get("path", String("res://")));
+	int limit = (int)p_args.get("limit", 0);
+	Array files;
+	_glob_walk(base, base, pattern, files, limit > 0 ? limit : 1000000);
+	Array results;
+	int failed = 0;
+	for (int i = 0; i < files.size(); i++) {
+		String path = files[i];
+		Dictionary res = _mcp_check_script(ProjectSettings::get_singleton()->localize_path(path));
+		if (!(bool)res.get("ok", false)) {
+			failed++;
+		}
+		results.append(res);
+	}
+	Dictionary out;
+	out["pattern"] = pattern;
+	out["checked"] = files.size();
+	out["failed"] = failed;
+	out["ok"] = failed == 0;
+	out["results"] = results;
+	return mcp_tool_ret_json(out);
 }
 
 static void _grep_walk(const String &p_dir, const String &p_pattern, const Vector<String> &p_exts, Array &r_out, int p_max, int &r_scanned) {
@@ -2108,6 +2521,27 @@ static Dictionary _schema_any(const Vector<String> &p_optional) {
 	return s;
 }
 
+static Dictionary _schema_props(const Vector<String> &p_required, const Vector<String> &p_optional) {
+	Dictionary props;
+	for (const String &p : p_required) {
+		props[p] = Dictionary{ { "type", "string" } };
+	}
+	for (const String &p : p_optional) {
+		props[p] = Dictionary{ { "type", "string" } };
+	}
+	Dictionary s;
+	s["type"] = "object";
+	s["properties"] = props;
+	if (!p_required.is_empty()) {
+		Array req;
+		for (const String &p : p_required) {
+			req.append(p);
+		}
+		s["required"] = req;
+	}
+	return s;
+}
+
 void mcp_register_tools(McpServer *p_server) {
 	// Capture engine errors/warnings for logs_read.
 	static bool log_hooks_installed = false;
@@ -2154,18 +2588,20 @@ void mcp_register_tools(McpServer *p_server) {
 	p_server->register_tool("script_patch", "Terapkan patch find/replace pada script. Args: path, find, replace, all (bool, ganti semua kemunculan).", _schema(true, Vector<String>{ "path", "find", "replace" }), _tool_script_patch);
 	p_server->register_tool("script_manage", "Operasi script. Args: op (read), path.", _schema(true, Vector<String>{ "op", "path" }), _tool_read_script);
 	p_server->register_tool("read_script", "Alias dari script_manage op=read. Args: path.", _schema(true, Vector<String>{ "path" }), _tool_read_script);
+	p_server->register_tool("script_check", "Periksa parse/compile satu script GDScript tanpa menjalankan game. Args: path. Mengembalikan ok, error_count, errors [{file, line, message}], warnings.", _schema(true, Vector<String>{ "path" }), _tool_script_check);
+	p_server->register_tool("project_script_check", "Periksa semua script .gd di proyek/folder. Args: pattern (default *.gd), path (default res://), limit (0=semua).", _schema_any(Vector<String>{ "pattern", "path", "limit" }), _tool_project_script_check);
 
 	// Filesystem tools.
-	p_server->register_tool("filesystem_manage", "Operasi filesystem. Args: op (read|write|list|remove|move), path, content, pattern, recursive, dest, confirm.", _schema(true, Vector<String>{ "op" }), _tool_filesystem_manage);
+	p_server->register_tool("filesystem_manage", "Operasi filesystem. Args: op (read|write|list|remove|move), path, content, pattern, recursive, dest, confirm.", _schema_props(Vector<String>{ "op" }, Vector<String>{ "path", "content", "pattern", "recursive", "dest", "confirm" }), _tool_filesystem_manage);
 	p_server->register_tool("read_file", "Alias dari filesystem_manage op=read. Args: path, json, binary (base64 untuk PNG/dll).", _schema(true, Vector<String>{ "path" }), _tool_read_file);
 	p_server->register_tool("write_file", "Alias dari filesystem_manage op=write. Args: path, content.", _schema(true, Vector<String>{ "path", "content" }), _tool_write_file);
 	p_server->register_tool("list_assets", "Alias dari filesystem_manage op=list. Args: pattern, recursive.", _schema_any(Vector<String>{ "pattern", "recursive" }), _tool_list_assets);
 
 	// Project & run tools.
-	p_server->register_tool("project_manage", "Operasi proyek. Args: op (info|get_setting|set_setting|reimport), name, value, save, path.", _schema(true, Vector<String>{ "op" }), _tool_project_manage);
+	p_server->register_tool("project_manage", "Operasi proyek. Args: op (info|get_setting|set_setting|reimport), name, value, save, path.", _schema_props(Vector<String>{ "op" }, Vector<String>{ "name", "value", "save", "path" }), _tool_project_manage);
 	p_server->register_tool("project_info", "Alias dari project_manage op=info.", _schema_any(Vector<String>()), _tool_project_info);
 	p_server->register_tool("get_project_setting", "Alias dari project_manage op=get_setting. Args: name.", _schema(true, Vector<String>{ "name" }), _tool_get_project_setting);
-	p_server->register_tool("set_project_setting", "Alias dari project_manage op=set_setting. Args: name, value, save.", _schema(true, Vector<String>{ "name" }), _tool_set_project_setting);
+	p_server->register_tool("set_project_setting", "Alias dari project_manage op=set_setting. Args: name, value, save.", _schema_props(Vector<String>{ "name" }, Vector<String>{ "value", "save" }), _tool_set_project_setting);
 	p_server->register_tool("project_run", "Jalankan/hentikan proyek. Args: op (play|run_scene|stop|state), path.", _schema(true, Vector<String>{ "op" }), _tool_project_run);
 	p_server->register_tool("run_main_scene", "Alias dari project_run op=play.", _schema_any(Vector<String>()), _tool_run_main_scene);
 	p_server->register_tool("run_custom_scene", "Alias dari project_run op=run_scene. Args: path.", _schema(true, Vector<String>{ "path" }), _tool_run_custom_scene);
@@ -2181,11 +2617,15 @@ void mcp_register_tools(McpServer *p_server) {
 	p_server->register_tool("editor_screenshot", "Ambil screenshot viewport editor (atau game saat sedang berjalan). Mengembalikan gambar PNG + actual_source. Args: source (editor|2d|game|game2d|window=seluruh UI), max_width, save_path (.png), hide_gizmos (bool), focus_node (crop ke node).", _schema_any(Vector<String>{ "source", "max_width", "save_path", "hide_gizmos", "focus_node" }), _tool_screenshot);
 	p_server->register_tool("screenshot", "Alias dari editor_screenshot.", _schema_any(Vector<String>{ "source", "max_width", "save_path", "hide_gizmos", "focus_node" }), _tool_screenshot);
 	p_server->register_tool("batch_execute", "Jalankan beberapa tool dalam satu kali perjalanan. Args: operations (array berisi {tool: nama, arguments: {}}), stop_on_error (bool). Mengembalikan array hasil.", _schema_any(Vector<String>{ "operations", "stop_on_error" }), _tool_batch_execute);
-	p_server->register_tool("logs_read", "Baca baris log error/peringatan/MCP editor terbaru. Args: level (all|error|warning|info), limit (int).", _schema_any(Vector<String>{ "level", "limit" }), _tool_logs_read);
+	p_server->register_tool("logs_read", "Baca log error/peringatan/MCP editor. Args: level (all|error|warning|info), limit (0=semua), since_msec (hanya yang lebih baru), clear (kosongkan setelah dibaca).", _schema_any(Vector<String>{ "level", "limit", "since_msec", "clear" }), _tool_logs_read);
 	p_server->register_tool("debugger_errors", "Baca error/peringatan panel Debugger editor (dari game berjalan). Args: level (all|error|warning), dedup (bool), limit (0=tanpa batas), stack (bool, sertakan stack live), clear (bool, bersihkan panel).", _schema_any(Vector<String>{ "level", "dedup", "limit", "stack", "clear" }), _tool_debugger_errors);
+	p_server->register_tool("errors_summary", "Ringkasan gabungan error editor (logs) + panel Debugger game dalam satu panggilan. Args: level (all|error|warning), since_msec, clear (kosongkan log editor), dedup, stack.", _schema_any(Vector<String>{ "level", "since_msec", "clear", "dedup", "stack" }), _tool_errors_summary);
+	p_server->register_tool("resource_check", "Muat satu resource (scene/script/texture/...) dan laporkan ok, tipe, can_instantiate, dependencies, serta error [{file, line, message}]. Args: path.", _schema(true, Vector<String>{ "path" }), _tool_resource_check);
 	p_server->register_tool("refresh", "Pindai ulang filesystem proyek dan muat ulang scene/pengaturan proyek yang berubah di disk, tanpa memulai ulang editor.", _schema_any(Vector<String>()), _tool_refresh);
 	p_server->register_tool("duplicate_node", "Duplikat node + subtree-nya sebagai sibling (undoable). Args: path, name (opsional).", _schema(true, Vector<String>{ "path" }), _tool_duplicate_node);
-	p_server->register_tool("execute_script", "Jalankan snippet GDScript di editor dan kembalikan nilainya. WAJIB akhiri dengan 'return ...' untuk dapat output (maks 4000 char). Satu baris pakai ';'. EditorInterface/Engine/ProjectSettings tersedia. AWAS: infinite loop menggantung editor.", _schema(true, Vector<String>{ "code" }), _tool_execute_script);
+	p_server->register_tool("editor_undo", "Undo aksi terakhir di editor. Args: tidak ada.", _schema_any(Vector<String>()), _tool_undo);
+	p_server->register_tool("editor_redo", "Redo aksi terakhir di editor. Args: tidak ada.", _schema_any(Vector<String>()), _tool_redo);
+	p_server->register_tool("execute_script", "Jalankan snippet GDScript di editor dan kembalikan nilainya. WAJIB akhiri dengan 'return ...' untuk dapat output (maks 16000 char). Satu baris pakai ';'. EditorInterface/Engine/ProjectSettings tersedia. AWAS: infinite loop menggantung editor.", _schema(true, Vector<String>{ "code" }), _tool_execute_script);
 	p_server->register_tool("glob", "Cari file se-project dengan pola (mis. *.gd, **/*.tscn; lewati .godot/.git). Args: pattern, path (default res://).", _schema(true, Vector<String>{ "pattern" }), _tool_glob);
 	p_server->register_tool("grep_code", "Cari teks di file project (substring, per baris). Args: pattern, path (default res://), ext, max (default 50).", _schema(true, Vector<String>{ "pattern" }), _tool_grep_code);
 	p_server->register_tool("path_to_uid", "Path res:// -> UID cache. Args: path.", _schema(true, Vector<String>{ "path" }), _tool_path_to_uid);

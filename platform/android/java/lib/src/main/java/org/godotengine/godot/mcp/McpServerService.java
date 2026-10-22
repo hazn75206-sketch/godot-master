@@ -42,6 +42,9 @@ public class McpServerService extends android.app.Service {
     static native void notifyMcpStop();
     static native String getServerUrl();
 
+    /** True while the MCP server is running; used to keep the engine alive in background. */
+    public static native boolean keepAliveMcp();
+
     public static void start(Context context, int port) {
         requestNotificationPermission(context);
         try {

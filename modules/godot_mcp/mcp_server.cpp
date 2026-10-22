@@ -25,6 +25,28 @@
 
 McpServer *McpServer::singleton = nullptr;
 
+// Project Manager does not instantiate EditorNode. MCP must stay off there and
+// only activate once a project is really open.
+static bool _mcp_editor_project_open() {
+	return EditorNode::get_singleton() != nullptr;
+}
+
+// Tools that only touch files / the log ring never need the main thread. They
+// keep working while the Android editor is paused in the background.
+static bool _mcp_tool_off_main_thread_safe(const String &p_name) {
+	static const char *safe_tools[] = {
+		"filesystem_manage", "read_file", "write_file", "list_assets",
+		"script_manage", "read_script", "script_create", "write_script", "script_patch",
+		"glob", "grep_code", "logs_read"
+	};
+	for (const char *name : safe_tools) {
+		if (p_name == name) {
+			return true;
+		}
+	}
+	return false;
+}
+
 McpServer::McpServer() {
 	ERR_FAIL_COND_MSG(singleton != nullptr, "McpServer already exists.");
 	singleton = this;
@@ -204,6 +226,9 @@ void McpServer::start_if_enabled() {
 	if (!Engine::get_singleton()->is_editor_hint()) {
 		return;
 	}
+	if (!_mcp_editor_project_open()) {
+		return;
+	}
 	if (running) {
 		return;
 	}
@@ -235,6 +260,7 @@ void McpServer::start_server() {
 	was_playing = false;
 	last_scene_id = 0;
 	last_tick = 0;
+	last_pushed_error_seq = mcp_log_error_seq();
 	SceneTree *st = SceneTree::get_singleton();
 	if (st && !tick_connected) {
 		st->connect(SNAME("process_frame"), callable_mp(this, &McpServer::_tick));
@@ -488,7 +514,12 @@ Dictionary McpServer::_execute_tool(const String &p_name, const Dictionary &p_ar
 		}
 		def = it->second;
 	}
-	Variant out = run_tool(def.handler, p_arguments);
+	Variant out;
+	if (!Thread::is_main_thread() && _mcp_tool_off_main_thread_safe(p_name)) {
+		out = def.handler(p_arguments);
+	} else {
+		out = run_tool(def.handler, p_arguments);
+	}
 	if (out.get_type() == Variant::DICTIONARY) {
 		Dictionary d = out;
 		if (d.has("content")) {
@@ -591,6 +622,12 @@ void McpServer::_tick() {
 	// refresh di handler-nya masing-masing; perubahan luar-MCP disegarkan
 	// manual via tool MCP "refresh".
 #endif
+	if (!_mcp_editor_project_open()) {
+		if (running) {
+			stop_server();
+		}
+		return;
+	}
 	if (!running) {
 		start_if_enabled();
 		return;
@@ -611,6 +648,27 @@ void McpServer::_tick() {
 		}
 	}
 	_emit_events();
+	uint64_t err_seq = mcp_log_error_seq();
+	if (err_seq > last_pushed_error_seq) {
+		Array fresh = mcp_log_errors_since(last_pushed_error_seq);
+		if (fresh.is_empty()) {
+			last_pushed_error_seq = err_seq;
+		}
+		int sent = 0;
+		for (int i = 0; i < fresh.size(); i++) {
+			if (sent >= 20) {
+				break;
+			}
+			Dictionary e = fresh[i];
+			last_pushed_error_seq = (uint64_t)(int64_t)e.get("error_seq", 0);
+			Dictionary data;
+			data["message"] = e.get("text", String());
+			data["file"] = e.get("file", String());
+			data["line"] = e.get("line", 0);
+			broadcast_notification("notifications/message", Dictionary{ { "level", "error" }, { "logger", "godot" }, { "data", data } });
+			sent++;
+		}
+	}
 }
 
 Variant McpServer::run_tool(Variant (*p_handler)(const Dictionary &p_args), const Dictionary &p_arguments, int p_timeout_ms) {
@@ -633,7 +691,7 @@ Variant McpServer::run_tool(Variant (*p_handler)(const Dictionary &p_args), cons
 	if (!task.done) {
 		task.done = true;
 		ERR_PRINT("Godot MCP: tool kehabisan waktu di thread utama");
-		return Dictionary{ { "content", Array{ Dictionary{ { "type", "text" }, { "text", "Thread utama kehabisan waktu (timeout)" } } } }, { "isError", true } };
+		return Dictionary{ { "content", Array{ Dictionary{ { "type", "text" }, { "text", "Timeout: main thread editor tidak merespons. Biasanya karena aplikasi Godot sedang di background. Bawa editor ke depan lalu coba lagi; tool file/log (filesystem_manage, read/write_script, glob, grep_code, logs_read) tetap bisa dipakai saat background." } } } }, { "isError", true } };
 	}
 	return task.result;
 #else
