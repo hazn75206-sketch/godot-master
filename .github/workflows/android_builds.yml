@@ -12,9 +12,9 @@ env:
 
 jobs:
   build-android:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     name: ${{ matrix.name }}
-    timeout-minutes: 60
+    timeout-minutes: 100
     strategy:
       fail-fast: false
       matrix:

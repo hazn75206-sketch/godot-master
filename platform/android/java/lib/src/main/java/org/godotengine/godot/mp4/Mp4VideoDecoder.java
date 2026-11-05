@@ -20,7 +20,7 @@ import java.nio.FloatBuffer;
  * does not matter whether the original file lives in an APK asset or on the
  * device filesystem. All public methods are called from the Godot main thread.
  */
-public final class Mp4VideoDecoder implements MediaDataSource {
+public final class Mp4VideoDecoder extends MediaDataSource {
 	private static final long NO_TIMEOUT_US = 0;
 	private static final long VIDEO_LOOKAHEAD_US = 100_000;
 	private static final long AUDIO_LOOKAHEAD_US = 1_000_000;
