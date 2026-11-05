@@ -7,6 +7,7 @@ import android.media.MediaCodec;
 import android.media.MediaDataSource;
 import android.media.MediaExtractor;
 import android.media.MediaFormat;
+import android.util.Log;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -18,9 +19,12 @@ import java.nio.FloatBuffer;
  *
  * The whole file is kept in memory and exposed through MediaDataSource so it
  * does not matter whether the original file lives in an APK asset or on the
- * device filesystem. All public methods are called from the Godot main thread.
+ * device filesystem. Decoding is driven from the playback's worker thread;
+ * control calls (play/pause/seek) are serialized by the native side.
  */
 public final class Mp4VideoDecoder extends MediaDataSource {
+	private static final String LOG_TAG = "GodotMP4";
+
 	private static final long NO_TIMEOUT_US = 0;
 	private static final long VIDEO_LOOKAHEAD_US = 100_000;
 	private static final long AUDIO_LOOKAHEAD_US = 1_000_000;
@@ -39,6 +43,12 @@ public final class Mp4VideoDecoder extends MediaDataSource {
 
 	private int videoTrack = -1;
 	private int audioTrack = -1;
+
+	// MP4/AAC streams usually start with priming samples that have a negative
+	// presentation timestamp. Shift them so MediaCodec receives non-negative,
+	// still monotonic timestamps.
+	private long videoPtsOffsetUs;
+	private long audioPtsOffsetUs;
 
 	private int width;
 	private int height;
@@ -62,6 +72,7 @@ public final class Mp4VideoDecoder extends MediaDataSource {
 	private final MediaCodec.BufferInfo audioInfo = new MediaCodec.BufferInfo();
 
 	private ByteBuffer yuvBuffer;
+	private byte[] rowBuffer = new byte[0];
 	private int frameWidth;
 	private int frameHeight;
 	private int frameSerial;
@@ -98,6 +109,8 @@ public final class Mp4VideoDecoder extends MediaDataSource {
 
 		videoFormat = videoExtractor.getTrackFormat(videoTrack);
 		videoExtractor.selectTrack(videoTrack);
+		long firstVideoPts = videoExtractor.getSampleTime();
+		videoPtsOffsetUs = firstVideoPts < 0 ? -firstVideoPts : 0;
 		videoMime = videoFormat.getString(MediaFormat.KEY_MIME);
 		width = videoFormat.getInteger(MediaFormat.KEY_WIDTH);
 		height = videoFormat.getInteger(MediaFormat.KEY_HEIGHT);
@@ -122,6 +135,8 @@ public final class Mp4VideoDecoder extends MediaDataSource {
 		if (audioTrack >= 0) {
 			audioFormat = audioExtractor.getTrackFormat(audioTrack);
 			audioExtractor.selectTrack(audioTrack);
+			long firstAudioPts = audioExtractor.getSampleTime();
+			audioPtsOffsetUs = firstAudioPts < 0 ? -firstAudioPts : 0;
 			audioMime = audioFormat.getString(MediaFormat.KEY_MIME);
 			channels = audioFormat.containsKey(MediaFormat.KEY_CHANNEL_COUNT) ? audioFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT) : 2;
 			sampleRate = audioFormat.containsKey(MediaFormat.KEY_SAMPLE_RATE) ? audioFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE) : 48000;
@@ -149,6 +164,13 @@ public final class Mp4VideoDecoder extends MediaDataSource {
 		yuvBuffer.order(ByteOrder.nativeOrder());
 		frameWidth = width;
 		frameHeight = height;
+
+		Log.i(LOG_TAG, "video=" + width + "x" + height + " rot=" + rotation
+				+ " duration=" + (durationUs / 1_000_000.0) + "s"
+				+ " audioTrack=" + audioTrack + " channels=" + channels
+				+ " sampleRate=" + sampleRate
+				+ " videoPtsOffset=" + videoPtsOffsetUs
+				+ " audioPtsOffset=" + audioPtsOffsetUs);
 	}
 
 	// MediaDataSource implementation.
@@ -404,7 +426,10 @@ public final class Mp4VideoDecoder extends MediaDataSource {
 
 		feedVideo();
 
+		int pendingIndex = -1;
+		Image pendingImage = null;
 		boolean newFrame = false;
+
 		while (true) {
 			int index = videoCodec.dequeueOutputBuffer(videoInfo, NO_TIMEOUT_US);
 			if (index == MediaCodec.INFO_TRY_AGAIN_LATER) {
@@ -424,6 +449,7 @@ public final class Mp4VideoDecoder extends MediaDataSource {
 				videoOutputDone = true;
 			}
 
+			boolean retained = false;
 			if (videoInfo.size > 0) {
 				Image image = null;
 				try {
@@ -431,17 +457,32 @@ public final class Mp4VideoDecoder extends MediaDataSource {
 				} catch (Exception ignored) {
 				}
 				if (image != null) {
-					copyImage(image);
-					image.close();
+					// Only the newest frame of this batch is displayed, so release
+					// the previous one without converting it.
+					if (pendingImage != null) {
+						pendingImage.close();
+						videoCodec.releaseOutputBuffer(pendingIndex, false);
+					}
+					pendingImage = image;
+					pendingIndex = index;
+					retained = true;
 					newFrame = true;
 				}
 			}
 
-			videoCodec.releaseOutputBuffer(index, false);
+			if (!retained) {
+				videoCodec.releaseOutputBuffer(index, false);
+			}
 
 			if (videoOutputDone) {
 				break;
 			}
+		}
+
+		if (pendingImage != null) {
+			copyImage(pendingImage);
+			pendingImage.close();
+			videoCodec.releaseOutputBuffer(pendingIndex, false);
 		}
 
 		return newFrame;
@@ -453,8 +494,12 @@ public final class Mp4VideoDecoder extends MediaDataSource {
 		}
 
 		for (int i = 0; i < 16; i++) {
+			if (videoExtractor.getSampleTrackIndex() < 0) {
+				queueVideoEndOfStream();
+				return;
+			}
 			long sampleTime = videoExtractor.getSampleTime();
-			if (sampleTime < 0) {
+			if (sampleTime == -1) {
 				queueVideoEndOfStream();
 				return;
 			}
@@ -479,7 +524,7 @@ public final class Mp4VideoDecoder extends MediaDataSource {
 				return;
 			}
 
-			videoCodec.queueInputBuffer(index, 0, size, sampleTime, 0);
+			videoCodec.queueInputBuffer(index, 0, size, sampleTime + videoPtsOffsetUs, 0);
 			videoExtractor.advance();
 		}
 	}
@@ -518,8 +563,12 @@ public final class Mp4VideoDecoder extends MediaDataSource {
 				return;
 			}
 
+			if (audioExtractor.getSampleTrackIndex() < 0) {
+				queueAudioEndOfStream();
+				return;
+			}
 			long sampleTime = audioExtractor.getSampleTime();
-			if (sampleTime < 0) {
+			if (sampleTime == -1) {
 				queueAudioEndOfStream();
 				return;
 			}
@@ -544,7 +593,7 @@ public final class Mp4VideoDecoder extends MediaDataSource {
 				return;
 			}
 
-			audioCodec.queueInputBuffer(index, 0, size, sampleTime, 0);
+			audioCodec.queueInputBuffer(index, 0, size, sampleTime + audioPtsOffsetUs, 0);
 			audioExtractor.advance();
 		}
 	}
@@ -584,9 +633,19 @@ public final class Mp4VideoDecoder extends MediaDataSource {
 				audioOutputDone = true;
 			}
 
+			if ((audioInfo.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
+				audioCodec.releaseOutputBuffer(index, false);
+				if (audioOutputDone) {
+					return;
+				}
+				continue;
+			}
+
 			if (audioInfo.size > 0) {
 				ByteBuffer buffer = audioCodec.getOutputBuffer(index);
 				if (buffer != null) {
+					// MediaCodec emits little-endian PCM; ByteBuffer defaults to big-endian.
+					buffer.order(ByteOrder.nativeOrder());
 					buffer.position(audioInfo.offset);
 					buffer.limit(audioInfo.offset + audioInfo.size);
 					appendPcm(buffer);
@@ -622,6 +681,31 @@ public final class Mp4VideoDecoder extends MediaDataSource {
 		}
 	}
 
+	private void copyPlane(ByteBuffer plane, int rowStride, int pixelStride, int x, int y, int width, int height) {
+		if (rowBuffer.length < width) {
+			rowBuffer = new byte[width];
+		}
+
+		int lastRowEnd = (y + height - 1) * rowStride + x + width;
+		if (pixelStride == 1 && lastRowEnd <= plane.capacity()) {
+			ByteBuffer src = plane.duplicate();
+			for (int row = 0; row < height; row++) {
+				int base = (y + row) * rowStride + x;
+				src.limit(base + width);
+				src.position(base);
+				src.get(rowBuffer, 0, width);
+				yuvBuffer.put(rowBuffer, 0, width);
+			}
+		} else {
+			for (int row = 0; row < height; row++) {
+				int base = (y + row) * rowStride + x * pixelStride;
+				for (int column = 0; column < width; column++) {
+					yuvBuffer.put(plane.get(base + column * pixelStride));
+				}
+			}
+		}
+	}
+
 	private void copyImage(Image image) {
 		Rect crop = image.getCropRect();
 		int cropLeft = 0;
@@ -646,45 +730,13 @@ public final class Mp4VideoDecoder extends MediaDataSource {
 		}
 
 		Image.Plane[] planes = image.getPlanes();
-		ByteBuffer yPlane = planes[0].getBuffer();
-		ByteBuffer uPlane = planes[1].getBuffer();
-		ByteBuffer vPlane = planes[2].getBuffer();
-
-		int yRowStride = planes[0].getRowStride();
-		int yPixelStride = planes[0].getPixelStride();
-		int uRowStride = planes[1].getRowStride();
-		int uPixelStride = planes[1].getPixelStride();
-		int vRowStride = planes[2].getRowStride();
-		int vPixelStride = planes[2].getPixelStride();
-
 		yuvBuffer.clear();
-
-		int yRowOffset = cropTop * yRowStride;
-		int yColumnOffset = cropLeft * yPixelStride;
-		for (int row = 0; row < cropHeight; row++) {
-			int base = yRowOffset + row * yRowStride + yColumnOffset;
-			for (int column = 0; column < cropWidth; column++) {
-				yuvBuffer.put(yPlane.get(base + column * yPixelStride));
-			}
-		}
-
-		int uRowOffset = (cropTop / 2) * uRowStride;
-		int uColumnOffset = (cropLeft / 2) * uPixelStride;
-		for (int row = 0; row < chromaHeight; row++) {
-			int base = uRowOffset + row * uRowStride + uColumnOffset;
-			for (int column = 0; column < chromaWidth; column++) {
-				yuvBuffer.put(uPlane.get(base + column * uPixelStride));
-			}
-		}
-
-		int vRowOffset = (cropTop / 2) * vRowStride;
-		int vColumnOffset = (cropLeft / 2) * vPixelStride;
-		for (int row = 0; row < chromaHeight; row++) {
-			int base = vRowOffset + row * vRowStride + vColumnOffset;
-			for (int column = 0; column < chromaWidth; column++) {
-				yuvBuffer.put(vPlane.get(base + column * vPixelStride));
-			}
-		}
+		copyPlane(planes[0].getBuffer(), planes[0].getRowStride(), planes[0].getPixelStride(),
+				cropLeft, cropTop, cropWidth, cropHeight);
+		copyPlane(planes[1].getBuffer(), planes[1].getRowStride(), planes[1].getPixelStride(),
+				cropLeft / 2, cropTop / 2, chromaWidth, chromaHeight);
+		copyPlane(planes[2].getBuffer(), planes[2].getRowStride(), planes[2].getPixelStride(),
+				cropLeft / 2, cropTop / 2, chromaWidth, chromaHeight);
 
 		yuvBuffer.rewind();
 		frameWidth = cropWidth;

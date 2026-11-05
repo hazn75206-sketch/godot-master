@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <defs>
+    <linearGradient id="a" x2="0" y1="2" y2="14" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#35e0a1"/>
+      <stop offset=".5" stop-color="#00a6c7"/>
+      <stop offset="1" stop-color="#2457d6"/>
+    </linearGradient>
+    <mask id="play-cutout" maskUnits="userSpaceOnUse" x="0" y="0" width="16" height="16">
+      <rect width="16" height="16" fill="#fff"/>
+      <path fill="#000" transform="translate(0,-1.15)" d="M6 6.107a.75.75 0 0 1 1.125-.637l3 1.883a.75.75 0 0 1 0 1.293l-3 1.883A.75.75 0 0 1 6 9.892z"/>
+    </mask>
+  </defs>
+  <path fill="url(#a)" mask="url(#play-cutout)" d="M15 1H1v1h2v2H1v8h2v2H1v1h14v-1h-2v-2h2V4h-2V2h2zm-4 1v2H9V2zm0 10v2H9v-2zM7 2v2H5V2zm0 10v2H5v-2z"/>
+  <text x="8" y="11.55" text-anchor="middle" font-family="Arial, sans-serif" font-size="2.05" font-weight="700" fill="#ffffff" stroke="#123047" stroke-width=".12" paint-order="stroke">MP4</text>
+</svg>
