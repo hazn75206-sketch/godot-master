@@ -14,7 +14,14 @@
 #include "core/string/ustring.h"
 #include "scene/resources/image_texture.h"
 
+#ifdef __GNUC__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-function"
+#endif
 #include <thirdparty/misc/yuv2rgb.h>
+#ifdef __GNUC__
+#pragma GCC diagnostic pop
+#endif
 
 #include <cstring>
 
