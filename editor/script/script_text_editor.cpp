@@ -57,7 +57,6 @@
 #include "editor/settings/editor_settings.h"
 #include "editor/themes/editor_scale.h"
 #include "scene/gui/grid_container.h"
-#include "scene/gui/line_edit.h"
 #include "scene/gui/menu_button.h"
 #include "scene/gui/rich_text_label.h"
 #include "scene/gui/split_container.h"
@@ -414,6 +413,7 @@ void ScriptTextEditor::_error_clicked(const Variant &p_line) {
 
 void ScriptTextEditor::_on_mouse_exited() {
 	drag_info_label->hide();
+	hover_tooltip_timer->stop();
 }
 
 void ScriptTextEditor::add_callback(const String &p_function, const PackedStringArray &p_args) {
@@ -755,6 +755,13 @@ void ScriptTextEditor::_update_background_color() {
 			int warning_start_column = warning.start_column - 1;
 			int warning_end_line = CLAMP(warning.end_line - 1, 0, te->get_line_count() - 1);
 			int warning_end_column = warning.end_column - 1;
+
+			// If this warning's range extends to a non-existent line, then the
+			// best we can do is have it go to the end of this current line.
+			if (warning.end_line - 1 >= te->get_line_count() - 1) {
+				warning_end_column = te->get_line(warning_end_line).length();
+			}
+
 			int folded_line_header = te->get_folded_line_header(warning_start_line);
 
 			if (warning_underline_color.a != 0.0) {
@@ -782,6 +789,13 @@ void ScriptTextEditor::_update_background_color() {
 			int error_start_column = error.start_column - 1;
 			int error_end_line = CLAMP(error.end_line - 1, 0, te->get_line_count() - 1);
 			int error_end_column = error.end_column - 1;
+
+			// If this error's range extends to a non-existent line, then the
+			// best we can do is have it go to the end of this current line.
+			if (error.end_line - 1 >= te->get_line_count() - 1) {
+				error_end_column = te->get_line(error_end_line).length();
+			}
+
 			int folded_line_header = te->get_folded_line_header(error_start_line);
 
 			if (error_underline_color.a != 0.0) {
@@ -1667,7 +1681,12 @@ void ScriptTextEditor::shortcut_input(const Ref<InputEvent> &p_event) {
 		return;
 	}
 
-	if (ED_GET_SHORTCUT("script_text_editor/rename_symbol")->matches_event(p_event)) {
+	Control *focus_owner = get_viewport()->gui_get_focus_owner();
+	if (!(focus_owner && (this == focus_owner || is_ancestor_of(focus_owner)))) {
+		return;
+	}
+
+	if (ED_IS_SHORTCUT("script_text_editor/rename_symbol", p_event)) {
 		_edit_option(RENAME_SYMBOL);
 		accept_event();
 		return;
@@ -1878,16 +1897,6 @@ bool ScriptTextEditor::_edit_option(int p_op) {
 				// Don't allow renaming native symbols.
 				break;
 			}
-
-			Vector2 pos = tx->get_screen_position();
-			// Set popup at the beginning of the word.
-			const PackedInt32Array words = TS->shaped_text_get_word_breaks(tx->get_line_data(tx->get_caret_line(0))->get_rid());
-			for (int i = 0; i < words.size(); i = i + 2) {
-				if ((words[i] <= tx->get_caret_column(0) && words[i + 1] >= tx->get_caret_column(0)) || (i == words.size() - 2 && tx->get_caret_column(0) == words[i + 1])) {
-					pos += tx->get_rect_at_line_column(tx->get_caret_line(), words[i] + 1).position;
-					break;
-				}
-			}
 			ScriptEditor::get_singleton()->rename_symbol(text, result);
 		} break;
 
@@ -1956,9 +1965,6 @@ void ScriptTextEditor::_notification(int p_what) {
 		} break;
 		case NOTIFICATION_DRAG_END: {
 			drag_info_label->hide();
-		} break;
-		case NOTIFICATION_MOUSE_EXIT: {
-			hover_tooltip_timer->stop();
 		} break;
 	}
 }

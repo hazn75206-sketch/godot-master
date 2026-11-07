@@ -55,10 +55,6 @@ extern char **environ;
 static char **environ;
 #endif
 
-#if defined(SDL_PLATFORM_LINUX) || defined(SDL_PLATFORM_MACOS) || defined(SDL_PLATFORM_FREEBSD)
-#include <stdlib.h>
-#endif
-
 struct SDL_Environment
 {
     SDL_Mutex *lock;   // !!! FIXME: reuse SDL_HashTable's lock.
@@ -555,7 +551,7 @@ int SDL_unsetenv_unsafe(const char *name)
 #endif // HAVE_LIBC_ENVIRONMENT
 
 // Retrieve a variable named "name" from the environment
-#ifdef HAVE_LIBC_ENVIRONMENT
+#if defined(SDL_PLATFORM_LINUX) || defined(SDL_PLATFORM_MACOS) || defined(SDL_PLATFORM_FREEBSD)
 const char *SDL_getenv_unsafe(const char *name)
 {
 #ifdef SDL_PLATFORM_ANDROID

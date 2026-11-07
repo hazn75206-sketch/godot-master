@@ -1505,7 +1505,7 @@ Vector2 Viewport::get_mouse_position() const {
 		// Rely on the most recent mouse coordinate from an InputEventMouse in push_input.
 		// In this case get_screen_transform is not applicable, because it is ambiguous.
 		return gui.last_mouse_pos;
-	} else if (DisplayServer::get_singleton()->has_feature(DisplayServerEnums::FEATURE_MOUSE)) {
+	} else if (DisplayServer::get_singleton()->has_feature(DisplayServerEnums::FEATURE_MOUSE) && !DisplayServer::get_singleton()->has_feature(DisplayServerEnums::FEATURE_EMBEDDED)) {
 		Transform2D xform = get_screen_transform_internal(true);
 		if (xform.determinant() == 0) {
 			// Screen transform can be non-invertible when the Window is minimized.
@@ -2719,7 +2719,7 @@ void Viewport::_gui_update_mouse_over() {
 	}
 
 	// Send Mouse Enter notifications.
-	for (int i = needs_enter.size() - 1; i >= 0; i--) {
+	for (int i = (int)needs_enter.size() - 1; i >= 0; i--) {
 		Control *ctrl = ObjectDB::get_instance<Control>(needs_enter[i]);
 		if (ctrl) {
 			ctrl->notification(Control::NOTIFICATION_MOUSE_ENTER);
@@ -3409,7 +3409,7 @@ void Viewport::_update_mouse_over(Vector2 p_pos) {
 			gui.sending_mouse_enter_exit_notifications = true;
 
 			// Send Mouse Enter notifications to parents first.
-			for (int i = over_ancestors.size() - 1; i >= 0; i--) {
+			for (int i = (int)over_ancestors.size() - 1; i >= 0; i--) {
 				Control *ctrl = ObjectDB::get_instance<Control>(over_ancestors[i]);
 				if (ctrl) {
 					gui.mouse_over_hierarchy.push_back(over_ancestors[i]);

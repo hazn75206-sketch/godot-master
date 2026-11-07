@@ -85,8 +85,12 @@ void SceneTreeDock::_nodes_drag_begin() {
 
 void SceneTreeDock::_quick_open(const String &p_file_path) {
 	List<Node *> selection = editor_selection->get_top_selected_node_list();
-	for (Node *node : selection) {
-		instantiate_scenes({ p_file_path }, node);
+	if (selection.is_empty()) {
+		instantiate_scenes({ p_file_path }, nullptr);
+	} else {
+		for (Node *node : selection) {
+			instantiate_scenes({ p_file_path }, node);
+		}
 	}
 }
 
@@ -108,7 +112,8 @@ void SceneTreeDock::_inspect_hovered_node() {
 		return;
 	}
 
-	TreeItem *item = tree->get_item_with_metadata(node_hovered_now->get_path());
+	const NodePath np = edited_scene->get_path_to(node_hovered_now);
+	TreeItem *item = tree->get_item_with_metadata(np);
 
 	_restore_treeitem_custom_color(tree_item_inspected);
 	tree_item_inspected = item;
@@ -962,8 +967,7 @@ void SceneTreeDock::_tool_selected(int p_tool, bool p_confirm_override) {
 
 			undo_redo->commit_action();
 
-			NodePath np = full_selection.front()->get()->get_path();
-			TreeItem *item = scene_tree->get_scene_tree()->get_item_with_metadata(np);
+			TreeItem *item = scene_tree->get_node_item(full_selection.front()->get());
 			callable_mp(scene_tree->get_scene_tree(), &Tree::scroll_to_item).call_deferred(item, false);
 		} break;
 		case TOOL_DUPLICATE: {
@@ -1873,8 +1877,11 @@ void SceneTreeDock::_notification(int p_what) {
 			Node *node_edited = Object::cast_to<Node>(InspectorDock::get_inspector_singleton()->get_edited_object());
 			if (node_edited) {
 				editor_selection->clear();
-				editor_selection->add_node(node_edited);
-				scene_tree->set_selected(node_edited);
+				const NodePath np = edited_scene->get_path_to(node_edited);
+				TreeItem *item = scene_tree->get_scene_tree()->get_item_with_metadata(np);
+				if (item) {
+					scene_tree->get_scene_tree()->set_selected(item);
+				}
 			}
 		} break;
 
@@ -3170,6 +3177,9 @@ Node *SceneTreeDock::_do_create(Node *p_parent) {
 	ERR_FAIL_NULL_V(child, nullptr);
 
 	String new_name = child->get_name();
+	if (new_name.is_empty()) {
+		new_name = child->get_class();
+	}
 	if (GLOBAL_GET("editor/naming/node_name_casing").operator int() != NAME_CASING_PASCAL_CASE) {
 		new_name = adjust_name_casing(new_name);
 	}
@@ -3862,8 +3872,12 @@ void SceneTreeDock::_normalize_drop(Node *&to_node, int &to_pos, int p_type) {
 
 		to_node = to_node->get_parent();
 	} else if (p_type == 2) {
-		// Drop as first child, among others.
+		// Drop as first visible child, among others.
 		to_pos = 0;
+		int sibling_count = to_node->get_child_count();
+		while (to_pos < sibling_count && !_is_node_visible(to_node->get_child(to_pos, false))) {
+			to_pos++;
+		}
 	}
 }
 
