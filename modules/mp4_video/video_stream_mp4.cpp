@@ -21,6 +21,14 @@ Ref<VideoStreamPlayback> VideoStreamMP4::instantiate_playback() {
 	return playback;
 }
 
+void VideoStreamMP4::reload_from_file() {
+	Resource::reload_from_file();
+	// The resource only stores the path, so the reloaded copy is identical.
+	// Emit `changed` anyway so VideoStreamPlayer recreates its playback and
+	// the new file contents are picked up.
+	emit_changed();
+}
+
 Ref<Resource> ResourceFormatLoaderMP4::load(const String &p_path, const String &p_original_path, Error *r_error, bool p_use_sub_threads, float *r_progress, CacheMode p_cache_mode) {
 	Ref<FileAccess> f = FileAccess::open(p_path, FileAccess::READ);
 	if (f.is_null()) {

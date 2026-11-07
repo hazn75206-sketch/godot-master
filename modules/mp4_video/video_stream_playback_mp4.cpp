@@ -9,6 +9,7 @@
 #include "mp4_android_jni.h"
 
 #include "core/error/error_macros.h"
+#include "core/io/file_access.h"
 #include "core/io/image.h"
 #include "core/os/os.h"
 #include "core/string/ustring.h"
@@ -30,22 +31,49 @@ VideoStreamPlaybackMP4::VideoStreamPlaybackMP4() {
 }
 
 VideoStreamPlaybackMP4::~VideoStreamPlaybackMP4() {
+	_close();
+}
+
+void VideoStreamPlaybackMP4::set_file(const String &p_file) {
+	if (p_file == file && decoder) {
+		return;
+	}
+
+	_close();
+	file = p_file;
+	_open();
+}
+
+void VideoStreamPlaybackMP4::_close() {
+	playing.clear();
+	paused_flag.clear();
+
 	exit_thread.set();
 	if (thread_started) {
 		decode_thread.wait_to_finish();
 		thread_started = false;
 	}
 
+	if (decoder) {
+		MutexLock lock(decoder_mutex);
+		mp4_decoder_destroy(decoder);
+		decoder = nullptr;
+	}
+
+	valid = false;
+	channels = 0;
+	mix_rate = 0;
+	length = 0.0;
+	file_modified_time = 0;
+	file_size = 0;
+	texture_width = 0;
+	texture_height = 0;
+	uploaded_serial = -1;
+	position.set(0.0f);
+	audio_pending.clear();
+
 	_clear_audio();
 	_clear_frames();
-
-	mp4_decoder_destroy(decoder);
-	decoder = nullptr;
-}
-
-void VideoStreamPlaybackMP4::set_file(const String &p_file) {
-	file = p_file;
-	_open();
 }
 
 void VideoStreamPlaybackMP4::_open() {
@@ -59,8 +87,13 @@ void VideoStreamPlaybackMP4::_open() {
 		if (!error.is_empty()) {
 			ERR_PRINT(vformat("VideoStreamMP4: %s (%s)", error, file));
 		}
+		file_modified_time = 0;
+		file_size = 0;
 		return;
 	}
+
+	file_modified_time = FileAccess::get_modified_time(file);
+	file_size = FileAccess::get_size(file);
 
 	valid = true;
 	channels = mp4_decoder_get_channels(decoder);
@@ -329,6 +362,20 @@ void VideoStreamPlaybackMP4::stop() {
 }
 
 void VideoStreamPlaybackMP4::play() {
+	if (file.is_empty()) {
+		return;
+	}
+
+	// The file may have been replaced on disk since it was opened (for example
+	// another MP4 copied over the same path). Reopen it so playback does not
+	// keep showing the old video.
+	if (!decoder) {
+		_open();
+	} else if (FileAccess::get_modified_time(file) != file_modified_time || FileAccess::get_size(file) != file_size) {
+		_close();
+		_open();
+	}
+
 	if (!valid || !decoder || playing.is_set()) {
 		return;
 	}

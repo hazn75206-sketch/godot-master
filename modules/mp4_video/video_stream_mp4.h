@@ -18,6 +18,7 @@ protected:
 public:
 	virtual Ref<VideoStreamPlayback> instantiate_playback() override;
 	virtual void set_audio_track(int p_track) override { audio_track = p_track; }
+	virtual void reload_from_file() override;
 };
 
 class ResourceFormatLoaderMP4 : public ResourceFormatLoader {

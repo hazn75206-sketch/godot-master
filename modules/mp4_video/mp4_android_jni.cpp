@@ -364,6 +364,85 @@ int mp4_decoder_mix_audio(MP4VideoDecoderHandle *p_handle, float *p_out, int p_f
 	return (int)mixed;
 }
 
+bool mp4_get_thumbnail(const String &p_path, int p_max_width, int p_max_height, Vector<uint8_t> &r_rgba, int &r_width, int &r_height) {
+	r_rgba.clear();
+	r_width = 0;
+	r_height = 0;
+
+	if (p_max_width <= 0 || p_max_height <= 0) {
+		return false;
+	}
+
+	JNIEnv *env = get_jni_env();
+	if (!env) {
+		return false;
+	}
+
+	Error file_error = OK;
+	Vector<uint8_t> bytes = FileAccess::get_file_as_bytes(p_path, &file_error);
+	if (file_error != OK || bytes.is_empty()) {
+		return false;
+	}
+
+	jclass cls = jni_find_class(env, "org/godotengine/godot/mp4/Mp4Thumbnail");
+	if (!cls) {
+		return false;
+	}
+
+	jmethodID method = env->GetStaticMethodID(cls, "extractThumbnail", "([BII[I)[B");
+	if (!method) {
+		_clear_exception(env);
+		env->DeleteLocalRef(cls);
+		return false;
+	}
+
+	jbyteArray data = env->NewByteArray((jsize)bytes.size());
+	if (!data) {
+		_clear_exception(env);
+		env->DeleteLocalRef(cls);
+		return false;
+	}
+	env->SetByteArrayRegion(data, 0, (jsize)bytes.size(), reinterpret_cast<const jbyte *>(bytes.ptr()));
+
+	jintArray out_size = env->NewIntArray(2);
+	if (!out_size) {
+		_clear_exception(env);
+		env->DeleteLocalRef(data);
+		env->DeleteLocalRef(cls);
+		return false;
+	}
+
+	jbyteArray result = (jbyteArray)env->CallStaticObjectMethod(cls, method, data, (jint)p_max_width, (jint)p_max_height, out_size);
+	env->DeleteLocalRef(data);
+
+	if (env->ExceptionCheck() || !result) {
+		_clear_exception(env);
+		env->DeleteLocalRef(out_size);
+		env->DeleteLocalRef(cls);
+		return false;
+	}
+
+	jint size_values[2] = { 0, 0 };
+	env->GetIntArrayRegion(out_size, 0, 2, size_values);
+	env->DeleteLocalRef(out_size);
+	env->DeleteLocalRef(cls);
+
+	const int64_t expected = (int64_t)size_values[0] * (int64_t)size_values[1] * 4;
+	const jsize length = env->GetArrayLength(result);
+	if (size_values[0] <= 0 || size_values[1] <= 0 || (int64_t)length != expected) {
+		env->DeleteLocalRef(result);
+		return false;
+	}
+
+	r_rgba.resize(length);
+	env->GetByteArrayRegion(result, 0, length, reinterpret_cast<jbyte *>(r_rgba.ptrw()));
+	env->DeleteLocalRef(result);
+
+	r_width = (int)size_values[0];
+	r_height = (int)size_values[1];
+	return true;
+}
+
 #else
 
 struct MP4VideoDecoderHandle {};
@@ -391,5 +470,12 @@ int mp4_decoder_get_sample_rate(MP4VideoDecoderHandle *) { return 0; }
 bool mp4_decoder_update(MP4VideoDecoderHandle *, double) { return false; }
 const uint8_t *mp4_decoder_get_frame(MP4VideoDecoderHandle *, int *, int *, int *, int *) { return nullptr; }
 int mp4_decoder_mix_audio(MP4VideoDecoderHandle *, float *, int) { return 0; }
+
+bool mp4_get_thumbnail(const String &, int, int, Vector<uint8_t> &r_rgba, int &r_width, int &r_height) {
+	r_rgba.clear();
+	r_width = 0;
+	r_height = 0;
+	return false;
+}
 
 #endif // ANDROID_ENABLED

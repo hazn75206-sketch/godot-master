@@ -35,6 +35,9 @@ class VideoStreamPlaybackMP4 : public VideoStreamPlayback {
 	int texture_height = 0;
 	int uploaded_serial = -1;
 
+	uint64_t file_modified_time = 0;
+	int64_t file_size = 0;
+
 	// Decoding happens on a worker thread so the main thread only uploads the
 	// latest converted frame and feeds audio into Godot's resampler.
 	Thread decode_thread;
@@ -59,6 +62,7 @@ class VideoStreamPlaybackMP4 : public VideoStreamPlayback {
 	int audio_count = 0;
 
 	void _open();
+	void _close();
 	void _start_thread();
 	static void _thread_callback(void *p_user);
 	void _thread_loop();
