@@ -5,6 +5,8 @@ import android.graphics.Matrix;
 import android.media.MediaDataSource;
 import android.media.MediaMetadataRetriever;
 
+import java.io.IOException;
+
 /**
  * Extracts a video frame used as the editor thumbnail/icon for MP4 files.
  *
@@ -65,7 +67,11 @@ public final class Mp4Thumbnail {
 		} catch (Throwable t) {
 			return null;
 		} finally {
-			retriever.release();
+			try {
+				retriever.release();
+			} catch (IOException e) {
+				// Ignore: a failed release must not replace the thumbnail result.
+			}
 		}
 	}
 
