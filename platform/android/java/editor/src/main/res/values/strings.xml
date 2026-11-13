@@ -24,4 +24,18 @@
 	<string name="don_t_select_locked_nodes">Don\'t Select Locked Nodes</string>
 	<string name="select_group_over_children">Select Group Over Children</string>
 	<string name="show_selection_visibility">Show Selection Visibility</string>
+	<string name="safe_import_title">Safe Import - %1$s</string>
+	<string name="safe_import_starting">Menyiapkan import...</string>
+	<string name="safe_import_running">Mengimpor...</string>
+	<string name="safe_import_progress">%1$d/%2$d %3$s</string>
+	<string name="safe_import_done">Import selesai</string>
+	<string name="safe_import_failed">Import gagal atau tidak selesai</string>
+	<string name="safe_import_engine_failed">Gagal memulai engine</string>
+	<string name="safe_import_file_failed">Gagal mengimpor: %1$s</string>
+	<string name="safe_import_exit">Keluar</string>
+	<string name="safe_import_reload">Reload</string>
+	<string name="safe_import_exit_confirm_title">Yakin ingin keluar?</string>
+	<string name="safe_import_exit_confirm_message">Import masih berjalan. Kalau keluar sekarang, proses import akan dihentikan dan cache bisa tertinggal setengah jadi.</string>
+	<string name="safe_import_reload_confirm_title">Yakin ingin reload?</string>
+	<string name="safe_import_reload_confirm_message">Import akan diulang dari awal.</string>
 </resources>

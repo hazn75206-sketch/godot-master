@@ -73,6 +73,7 @@ private:
 	jmethodID _on_godot_main_loop_started = nullptr;
 	jmethodID _on_godot_terminating = nullptr;
 	jmethodID _create_new_godot_instance = nullptr;
+	jmethodID _start_safe_import = nullptr;
 	jmethodID _get_render_view = nullptr;
 	jmethodID _begin_benchmark_measure = nullptr;
 	jmethodID _end_benchmark_measure = nullptr;
@@ -137,6 +138,7 @@ public:
 	void vibrate(int p_duration_ms, float p_amplitude = -1.0);
 	String get_input_fallback_mapping();
 	int create_new_godot_instance(const List<String> &args);
+	void start_safe_import(const String &p_project_path);
 	void begin_benchmark_measure(const String &p_context, const String &p_label);
 	void end_benchmark_measure(const String &p_context, const String &p_label);
 	void dump_benchmark(const String &benchmark_file);

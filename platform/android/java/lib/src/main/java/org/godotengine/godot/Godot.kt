@@ -1097,6 +1097,26 @@ class Godot private constructor(val context: Context) {
 	}
 
 	/**
+	 * Starts the Android editor's import-only activity for the given project.
+	 *
+	 * The activity runs in its own process and is responsible for launching a headless engine
+	 * instance with the `--safe-import` flag.
+	 */
+	fun startSafeImport(projectPath: String) {
+		val activity = getActivity() ?: return
+		val intent = Intent().apply {
+			setClassName(activity.packageName, "org.godotengine.editor.GodotImportActivity")
+			putExtra("project_path", projectPath)
+			addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+		}
+		try {
+			activity.startActivity(intent)
+		} catch (e: Exception) {
+			Log.e(TAG, "Unable to start safe import activity", e)
+		}
+	}
+
+	/**
 	 * Destroys the Godot Engine and kill the process it's running in.
 	 */
 	@JvmOverloads

@@ -855,6 +855,7 @@ bool EditorFileSystem::_update_scan_actions() {
 	}
 	updating_scan_actions = true;
 
+	const bool safe_import = OS::get_singleton()->get_cmdline_args().find(String("--safe-import")) != nullptr;
 	sources_changed.clear();
 
 	// We need to update the script global class names before the reimports to be sure that
@@ -1051,7 +1052,13 @@ bool EditorFileSystem::_update_scan_actions() {
 		reimport_files(reimports);
 	} else {
 		//reimport files will update the uid cache file so if nothing was reimported, update it manually
+		if (safe_import) {
+			print_line("SAFE_IMPORT_BEGIN 0");
+		}
 		ResourceUID::get_singleton()->update_cache();
+		if (safe_import) {
+			print_line("SAFE_IMPORT_DONE");
+		}
 	}
 
 	if (!reloads.is_empty()) {
@@ -3087,6 +3094,9 @@ Error EditorFileSystem::_reimport_file(const String &p_file, const HashMap<Strin
 
 	print_verbose(vformat("EditorFileSystem: \"%s\" import took %d ms.", p_file, OS::get_singleton()->get_ticks_msec() - start_time));
 
+	if (err != OK && OS::get_singleton()->get_cmdline_args().find(String("--safe-import")) != nullptr) {
+		print_line(vformat("SAFE_IMPORT_FILE_FAILED %s", p_file));
+	}
 	ERR_FAIL_COND_V_MSG(err != OK, ERR_FILE_UNRECOGNIZED, "Error importing '" + p_file + "'.");
 	return OK;
 }
@@ -3279,6 +3289,11 @@ void EditorFileSystem::reimport_files(const Vector<String> &p_files) {
 	ERR_FAIL_COND_MSG(importing, "Attempted to call reimport_files() recursively, this is not allowed.");
 	importing = true;
 
+	const bool safe_import = OS::get_singleton()->get_cmdline_args().find(String("--safe-import")) != nullptr;
+	if (safe_import) {
+		print_line(vformat("SAFE_IMPORT_BEGIN %d", p_files.size()));
+	}
+
 	Vector<String> reloads;
 
 	EditorProgress *ep = memnew(EditorProgress("reimport", TTR("(Re)Importing Assets"), p_files.size()));
@@ -3459,6 +3474,10 @@ void EditorFileSystem::reimport_files(const Vector<String> &p_files) {
 	}
 	emit_signal(SNAME("resources_reimported"), reloads);
 	memdelete(ep);
+
+	if (safe_import) {
+		print_line("SAFE_IMPORT_DONE");
+	}
 }
 
 Error EditorFileSystem::reimport_append(const String &p_file, const HashMap<StringName, Variant> &p_custom_options, const String &p_custom_importer, Variant p_generator_parameters) {

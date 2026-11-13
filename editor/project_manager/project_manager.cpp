@@ -72,6 +72,10 @@
 #include "servers/display/display_server.h"
 #include "servers/navigation_3d/navigation_server_3d.h"
 
+#ifdef ANDROID_ENABLED
+#include "platform/android/os_android.h"
+#endif
+
 #ifndef PHYSICS_2D_DISABLED
 #include "servers/physics_2d/physics_server_2d.h"
 #endif // PHYSICS_2D_DISABLED
@@ -943,8 +947,13 @@ void ProjectManager::_open_recovery_mode_ask(bool manual) {
 			String::utf8("\n•  ") + TTR("Editor plugins") +
 			String::utf8("\n•  ") + TTR("GDExtension addons") +
 			String::utf8("\n•  ") + TTR("Automatic scene restoring") +
-			String::utf8("\n\n") + TTR("This mode is intended only for basic editing to troubleshoot such issues, and therefore it will not be possible to run the project during this mode. It is also a good idea to make a backup of your project before proceeding.") +
-			String::utf8("\n\n") + TTR("Edit the project in Recovery Mode?");
+			String::utf8("\n\n") + TTR("This mode is intended only for basic editing to troubleshoot such issues, and therefore it will not be possible to run the project during this mode. It is also a good idea to make a backup of your project before proceeding.");
+#ifdef ANDROID_ENABLED
+	recovery_mode_details +=
+			String::utf8("\n\n") + TTR("If the project crashes during asset import, you can choose \"Import Only (Safe Mode)\" to run the import in a separate process without opening the editor.");
+#endif
+	recovery_mode_details +=
+			String::utf8("\n\n") + TTR("Choose how to open the project:");
 
 	open_recovery_mode_ask->set_text(recovery_mode_details);
 	open_recovery_mode_ask->popup_centered(Size2(550, 70) * EDSCALE);
@@ -984,6 +993,26 @@ void ProjectManager::_on_recovery_mode_popup_open_normal() {
 void ProjectManager::_on_recovery_mode_popup_open_recovery() {
 	open_in_recovery_mode = true;
 	_open_selected_projects_check_warnings();
+}
+
+void ProjectManager::_on_recovery_mode_popup_open_safe_import() {
+	Vector<ProjectList::Item> selected_projects = project_list->get_selected_projects();
+	if (selected_projects.is_empty()) {
+		return;
+	}
+
+	const ProjectList::Item &project = selected_projects[0];
+	if (project.missing) {
+		return;
+	}
+
+	open_recovery_mode_ask->hide();
+
+#ifdef ANDROID_ENABLED
+	OS_Android::get_singleton()->start_safe_import(project.path);
+#else
+	_show_error(TTRC("Safe Import is only available on Android."));
+#endif
 }
 
 void ProjectManager::_on_project_created(const String &dir, bool edit) {
@@ -1948,6 +1977,9 @@ ProjectManager::ProjectManager() {
 		open_recovery_mode_ask->set_min_size(Size2(550, 70) * EDSCALE);
 		open_recovery_mode_ask->set_autowrap(true);
 		open_recovery_mode_ask->add_button(TTRC("Edit normally"))->connect(SceneStringName(pressed), callable_mp(this, &ProjectManager::_on_recovery_mode_popup_open_normal));
+#ifdef ANDROID_ENABLED
+		open_recovery_mode_ask->add_button(TTRC("Import Only (Safe Mode)"))->connect(SceneStringName(pressed), callable_mp(this, &ProjectManager::_on_recovery_mode_popup_open_safe_import));
+#endif
 		open_recovery_mode_ask->set_ok_button_text(TTRC("Edit in Recovery Mode"));
 		open_recovery_mode_ask->get_ok_button()->connect(SceneStringName(pressed), callable_mp(this, &ProjectManager::_on_recovery_mode_popup_open_recovery));
 		add_child(open_recovery_mode_ask);

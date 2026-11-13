@@ -113,6 +113,15 @@
             </intent-filter>
         </activity-alias>
         <activity
+            android:name=".GodotImportActivity"
+            android:configChanges="layoutDirection|locale|orientation|keyboardHidden|screenSize|smallestScreenSize|density|keyboard|navigation|screenLayout|uiMode|fontScale|fontWeightAdjustment"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:process=":GodotImport"
+            android:screenOrientation="userLandscape"
+            android:taskAffinity=":safe_import"
+            android:theme="@style/GodotEditorTheme" />
+        <activity
             android:name=".GodotGame0"
             android:configChanges="layoutDirection|locale|orientation|keyboardHidden|screenSize|smallestScreenSize|density|keyboard|navigation|screenLayout|uiMode|fontScale|fontWeightAdjustment"
             android:exported="false"

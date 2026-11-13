@@ -222,6 +222,7 @@ static bool recovery_mode = false;
 static bool auto_build_solutions = false;
 static String debug_server_uri;
 static bool wait_for_import = false;
+static bool safe_import = false;
 static bool restore_editor_window_layout = true;
 #ifndef DISABLE_DEPRECATED
 static int converter_max_kb_file = 4 * 1024; // 4MB
@@ -1651,6 +1652,16 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 			cmdline_tool = true;
 			wait_for_import = true;
 			quit_after = 1;
+#ifdef TOOLS_ENABLED
+		} else if (arg == "--safe-import") {
+			editor = true;
+			cmdline_tool = true;
+			safe_import = true;
+			wait_for_import = true;
+			quit_after = 1;
+			// Keep it in the OS command line so editor code can detect safe import mode.
+			main_args.push_back(arg);
+#endif
 		} else if (arg == "--export-release" || arg == "--export-debug" ||
 				arg == "--export-pack" || arg == "--export-patch") { // Export project
 			// Actually handling is done in start().
@@ -2378,6 +2389,14 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 	}
 
 	Logger::set_flush_stdout_on_print(GLOBAL_GET("application/run/flush_stdout_on_print"));
+
+#ifdef TOOLS_ENABLED
+	if (safe_import) {
+		// The safe import UI tails the log file, so every progress line must reach disk immediately.
+		CoreGlobals::print_line_enabled = true;
+		Logger::set_flush_stdout_on_print(true);
+	}
+#endif
 
 	// Rendering drivers configuration.
 

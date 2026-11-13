@@ -115,6 +115,9 @@ class TouchActionsPanel;
 
 struct EditorProgress {
 	String task;
+	int amount = 0;
+	int last_step = -2;
+	bool safe_import = false;
 	bool force_background = false;
 	bool step(const String &p_state, int p_step = -1, bool p_force_refresh = true);
 

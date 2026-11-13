@@ -216,6 +216,7 @@ class ProjectManager : public Control {
 	void _on_open_options_selected(int p_option);
 	void _on_recovery_mode_popup_open_normal();
 	void _on_recovery_mode_popup_open_recovery();
+	void _on_recovery_mode_popup_open_safe_import();
 
 	void _on_order_option_changed(int p_idx);
 	void _on_search_term_changed(const String &p_term);

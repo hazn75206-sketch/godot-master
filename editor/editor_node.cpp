@@ -247,6 +247,15 @@ static const String INSTALL_ANDROID_BUILD_TEMPLATE_MESSAGE = TTRC("This will set
 constexpr int LARGE_RESOURCE_WARNING_SIZE_THRESHOLD = 512'000; // 500 KB
 
 bool EditorProgress::step(const String &p_state, int p_step, bool p_force_refresh) {
+	if (task == "reimport" && safe_import && p_step != last_step) {
+		last_step = p_step;
+		int current = p_step < 0 ? 0 : p_step + 1;
+		if (amount > 0 && current > amount) {
+			current = amount;
+		}
+		print_line(vformat("SAFE_IMPORT_PROGRESS %d/%d %s", current, amount, p_state));
+	}
+
 	if (!force_background && Thread::is_main_thread()) {
 		return EditorNode::progress_task_step(task, p_state, p_step, p_force_refresh);
 	} else {
@@ -256,6 +265,8 @@ bool EditorProgress::step(const String &p_state, int p_step, bool p_force_refres
 }
 
 EditorProgress::EditorProgress(const String &p_task, const String &p_label, int p_amount, bool p_can_cancel, bool p_force_background) {
+	amount = p_amount;
+	safe_import = p_task == "reimport" && OS::get_singleton() && OS::get_singleton()->get_cmdline_args().find(String("--safe-import")) != nullptr;
 	if (!p_force_background && Thread::is_main_thread()) {
 		EditorNode::progress_add_task(p_task, p_label, p_amount, p_can_cancel);
 	} else {

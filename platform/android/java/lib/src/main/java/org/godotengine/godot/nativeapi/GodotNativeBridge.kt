@@ -315,6 +315,10 @@ internal class GodotNativeBridge(private val godot: Godot) {
 		return godot.primaryHost?.onNewGodotInstanceRequested(args) ?: -1
 	}
 
+	private fun startSafeImport(projectPath: String) {
+		godot.startSafeImport(projectPath)
+	}
+
 	private fun nativeBeginBenchmarkMeasure(scope: String, label: String) {
 		beginBenchmarkMeasure(scope, label)
 	}

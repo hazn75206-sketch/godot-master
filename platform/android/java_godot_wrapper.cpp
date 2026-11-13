@@ -77,6 +77,7 @@ GodotJavaWrapper::GodotJavaWrapper(JNIEnv *p_env, jobject p_godot_native_bridge)
 	_on_godot_main_loop_started = p_env->GetMethodID(godot_native_bridge_class, "onGodotMainLoopStarted", "()V");
 	_on_godot_terminating = p_env->GetMethodID(godot_native_bridge_class, "onGodotTerminating", "()V");
 	_create_new_godot_instance = p_env->GetMethodID(godot_native_bridge_class, "createNewGodotInstance", "([Ljava/lang/String;)I");
+	_start_safe_import = p_env->GetMethodID(godot_native_bridge_class, "startSafeImport", "(Ljava/lang/String;)V");
 	_get_render_view = p_env->GetMethodID(godot_native_bridge_class, "getRenderView", "()Lorg/godotengine/godot/GodotRenderView;");
 	_begin_benchmark_measure = p_env->GetMethodID(godot_native_bridge_class, "nativeBeginBenchmarkMeasure", "(Ljava/lang/String;Ljava/lang/String;)V");
 	_end_benchmark_measure = p_env->GetMethodID(godot_native_bridge_class, "nativeEndBenchmarkMeasure", "(Ljava/lang/String;Ljava/lang/String;)V");
@@ -499,6 +500,16 @@ int GodotJavaWrapper::create_new_godot_instance(const List<String> &args) {
 		return env->CallIntMethod(godot_native_bridge, _create_new_godot_instance, jargs);
 	} else {
 		return 0;
+	}
+}
+
+void GodotJavaWrapper::start_safe_import(const String &p_project_path) {
+	if (_start_safe_import) {
+		JNIEnv *env = get_jni_env();
+		ERR_FAIL_NULL(env);
+		jstring j_project_path = env->NewStringUTF(p_project_path.utf8().get_data());
+		env->CallVoidMethod(godot_native_bridge, _start_safe_import, j_project_path);
+		env->DeleteLocalRef(j_project_path);
 	}
 }
 

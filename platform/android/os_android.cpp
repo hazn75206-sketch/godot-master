@@ -170,6 +170,11 @@ GodotJavaWrapper *OS_Android::get_godot_java() {
 	return godot_java;
 }
 
+void OS_Android::start_safe_import(const String &p_project_path) {
+	ERR_FAIL_NULL(godot_java);
+	godot_java->start_safe_import(p_project_path);
+}
+
 GodotIOJavaWrapper *OS_Android::get_godot_io_java() {
 	return godot_io_java;
 }
@@ -386,7 +391,12 @@ bool OS_Android::main_loop_iterate(bool *r_should_swap_buffers) {
 		return false;
 	}
 	DisplayServerAndroid *dsa = DisplayServerAndroid::get_singleton();
-	ERR_FAIL_NULL_V(dsa, true);
+	if (!dsa) {
+		if (r_should_swap_buffers) {
+			*r_should_swap_buffers = false;
+		}
+		return Main::iteration();
+	}
 	dsa->reset_swap_buffers_flag();
 	dsa->process_events();
 

@@ -109,6 +109,8 @@ public:
 	GodotJavaWrapper *get_godot_java();
 	GodotIOJavaWrapper *get_godot_io_java();
 
+	void start_safe_import(const String &p_project_path);
+
 	virtual bool request_permission(const String &p_name) override;
 	virtual bool request_permissions() override;
 	virtual Vector<String> get_granted_permissions() const override;
