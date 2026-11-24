@@ -245,7 +245,9 @@ static const String THEMED_ICON_XML_PATH = "res/mipmap-anydpi-v26/themed_icon.xm
 
 static const String ANDROID_SPLASH_ICON_PATH = "res/drawable/splash_icon.webp";
 static const String ANDROID_SPLASH_BRANDING_IMAGE_PATH = "res/drawable/splash_branding_image.webp";
+static const String ANDROID_SPLASH_EMPTY_PATH = "res/drawable/splash_icon_empty.xml";
 
+static const char *SHOW_LAUNCHER_SPLASH_OPTION = PNAME("splash_screen/show_launcher_splash");
 static const char *DISABLE_GODOT_SPLASH_OPTION = PNAME("splash_screen/disable_godot_boot_splash");
 static const char *ANDROID_SPLASH_ICON_OPTION = PNAME("splash_screen/icon");
 static const char *ANDROID_SPLASH_BACKGROUND_COLOR_OPTION = PNAME("splash_screen/background_color");
@@ -1050,22 +1052,44 @@ void EditorExportPlatformAndroid::_fix_themes_xml(const Ref<EditorExportPreset> 
 
 	Dictionary splash_theme_attributes;
 
-	Color color = p_preset->get(ANDROID_SPLASH_BACKGROUND_COLOR_OPTION);
-	if (color == Color()) {
-		splash_theme_attributes["android:windowSplashScreenBackground"] = "@mipmap/icon_background";
+	const bool show_launcher_splash = p_preset->get(SHOW_LAUNCHER_SPLASH_OPTION);
+	if (!show_launcher_splash) {
+		const String empty_icon = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+								  "<shape xmlns:android=\"http://schemas.android.com/apk/res/android\" android:shape=\"rectangle\">\n"
+								  "	<solid android:color=\"@android:color/transparent\" />\n"
+								  "	<size android:width=\"1dp\" android:height=\"1dp\" />\n"
+								  "</shape>\n";
+		store_string_at_path(p_export_src_dir.path_join(ANDROID_SPLASH_EMPTY_PATH), empty_icon);
+		splash_theme_attributes["windowSplashScreenAnimatedIcon"] = "@drawable/splash_icon_empty";
+		splash_theme_attributes["android:windowSplashScreenAnimatedIcon"] = "@drawable/splash_icon_empty";
+		splash_theme_attributes["windowSplashScreenBrandingImage"] = "@drawable/splash_icon_empty";
+		splash_theme_attributes["android:windowSplashScreenBrandingImage"] = "@drawable/splash_icon_empty";
+		if (transparency_allowed) {
+			splash_theme_attributes["android:windowSplashScreenBackground"] = "@android:color/transparent";
+		} else {
+			splash_theme_attributes["android:windowSplashScreenBackground"] = "#" + p_preset->get("screen/background_color").operator Color().to_html(false);
+		}
+		splash_theme_attributes["windowSplashScreenAnimationDuration"] = "0";
+		splash_theme_attributes["android:windowSplashScreenAnimationDuration"] = "0";
+		main_theme_attributes["android:windowDisablePreview"] = "true";
 	} else {
-		splash_theme_attributes["android:windowSplashScreenBackground"] = "#" + color.to_html(false);
-	}
-	splash_theme_attributes["windowSplashScreenAnimatedIcon"] = "@drawable/splash_icon";
-	String splash_icon_path = p_preset->get(ANDROID_SPLASH_ICON_OPTION);
-	if (!splash_icon_path.is_empty() && splash_icon_path.get_extension() == "xml") {
-		Vector<uint8_t> data = FileAccess::get_file_as_bytes(splash_icon_path);
-		store_file_at_path(p_export_src_dir.path_join("res/drawable/splash_icon_vector.xml"), data);
-		splash_theme_attributes["windowSplashScreenAnimatedIcon"] = "@drawable/splash_icon_vector";
-	}
-	String splash_branding_image_path = p_preset->get(ANDROID_SPLASH_BRANDING_IMAGE_OPTION);
-	if (!splash_branding_image_path.is_empty()) {
-		splash_theme_attributes["android:windowSplashScreenBrandingImage"] = "@drawable/splash_branding_image";
+		Color color = p_preset->get(ANDROID_SPLASH_BACKGROUND_COLOR_OPTION);
+		if (color == Color()) {
+			splash_theme_attributes["android:windowSplashScreenBackground"] = "@mipmap/icon_background";
+		} else {
+			splash_theme_attributes["android:windowSplashScreenBackground"] = "#" + color.to_html(false);
+		}
+		splash_theme_attributes["windowSplashScreenAnimatedIcon"] = "@drawable/splash_icon";
+		String splash_icon_path = p_preset->get(ANDROID_SPLASH_ICON_OPTION);
+		if (!splash_icon_path.is_empty() && splash_icon_path.get_extension() == "xml") {
+			Vector<uint8_t> data = FileAccess::get_file_as_bytes(splash_icon_path);
+			store_file_at_path(p_export_src_dir.path_join("res/drawable/splash_icon_vector.xml"), data);
+			splash_theme_attributes["windowSplashScreenAnimatedIcon"] = "@drawable/splash_icon_vector";
+		}
+		String splash_branding_image_path = p_preset->get(ANDROID_SPLASH_BRANDING_IMAGE_OPTION);
+		if (!splash_branding_image_path.is_empty()) {
+			splash_theme_attributes["android:windowSplashScreenBrandingImage"] = "@drawable/splash_branding_image";
+		}
 	}
 	splash_theme_attributes["postSplashScreenTheme"] = "@style/GodotAppMainTheme";
 	splash_theme_attributes["android:windowIsTranslucent"] = bool_to_string(transparency_allowed);
@@ -2034,6 +2058,11 @@ String EditorExportPlatformAndroid::get_export_option_warning(const EditorExport
 			if (bool(p_preset->get("gesture/swipe_to_dismiss")) && !gradle_build_enabled) {
 				return TTR("\"Use Gradle Build\" is required to enable \"Swipe to dismiss\".");
 			}
+		} else if (p_name == SHOW_LAUNCHER_SPLASH_OPTION) {
+			bool gradle_build_enabled = p_preset->get("gradle_build/use_gradle_build");
+			if (bool(p_preset->get(SHOW_LAUNCHER_SPLASH_OPTION)) && !gradle_build_enabled) {
+				return TTR("\"Use Gradle Build\" is required to show the launcher splash.");
+			}
 		} else if (p_name == "gradle_build/use_gradle_build") {
 			bool gradle_build_enabled = p_preset->get("gradle_build/use_gradle_build");
 			String enabled_deprecated_plugins_names = _get_deprecated_plugins_names(Ref<EditorExportPreset>(p_preset));
@@ -2213,6 +2242,7 @@ void EditorExportPlatformAndroid::get_export_options(List<ExportOption> *r_optio
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "screen/support_xlarge"), true));
 	r_options->push_back(ExportOption(PropertyInfo(Variant::COLOR, "screen/background_color", PROPERTY_HINT_COLOR_NO_ALPHA), Color()));
 
+	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, SHOW_LAUNCHER_SPLASH_OPTION), false));
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, DISABLE_GODOT_SPLASH_OPTION), false));
 	r_options->push_back(ExportOption(PropertyInfo(Variant::STRING, ANDROID_SPLASH_ICON_OPTION, PROPERTY_HINT_FILE, "*.png,*.webp,*.svg,*.xml"), ""));
 	r_options->push_back(ExportOption(PropertyInfo(Variant::STRING, ANDROID_SPLASH_BRANDING_IMAGE_OPTION, PROPERTY_HINT_FILE, "*.png,*.webp,*.svg"), ""));

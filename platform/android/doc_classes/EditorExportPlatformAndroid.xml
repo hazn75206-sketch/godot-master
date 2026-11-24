@@ -643,6 +643,10 @@
 			System splash screen icon file. If left empty, it will fall back to [member EditorExportPlatformAndroid.launcher_icons/adaptive_foreground_432x432]. See [url=https://developer.android.com/develop/ui/views/launch/splash-screen#dimensions]splash-screen dimensions[/url].
 			[b]Note:[/b] You can provide an [url=https://developer.android.com/reference/android/graphics/drawable/AnimatedVectorDrawable]AnimatedVectorDrawable (AVD)[/url] XML. However, the XML file will only be used if [member EditorExportPlatformAndroid.gradle_build/use_gradle_build] is enabled. If not, it will fall back to [member EditorExportPlatformAndroid.launcher_icons/adaptive_background_432x432].
 		</member>
+		<member name="splash_screen/show_launcher_splash" type="bool" setter="" getter="">
+			If [code]true[/code], the Android system launcher splash (the splash screen that displays the application icon before the game starts) is shown. If [code]false[/code], the launcher splash icon and branding are hidden so the game opens directly.
+			[b]Note:[/b] Android 12 and newer always display a system splash window, but with this option disabled it is rendered transparent and without an icon. This is only applied if [member EditorExportPlatformAndroid.gradle_build/use_gradle_build] is enabled.
+		</member>
 		<member name="user_data_backup/allow" type="bool" setter="" getter="">
 			If [code]true[/code], allows the application to participate in the backup and restore infrastructure.
 		</member>

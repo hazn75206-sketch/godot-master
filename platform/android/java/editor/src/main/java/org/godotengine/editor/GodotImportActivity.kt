@@ -62,10 +62,10 @@ class GodotImportActivity : Activity(), GodotHost {
 	companion object {
 		private const val TAG = "GodotSafeImport"
 		private const val EXTRA_PROJECT_PATH = "project_path"
-		private const val LOG_FILE_NAME = "safe_import.log"
+		private const val PROJECT_LOG_FILE_NAME = "impor_save.log"
+		private const val CACHE_LOG_FILE_NAME = "impor_save.log"
 		private const val LOG_POLL_INTERVAL_MS = 200L
 		private const val MAX_LOG_CHARS = 200_000
-		private const val SUCCESS_RETURN_DELAY_MS = 1000L
 	}
 
 	private var godot: Godot? = null
@@ -82,6 +82,7 @@ class GodotImportActivity : Activity(), GodotHost {
 
 	private var projectPath = ""
 	private var logFile: File? = null
+	private var logSavedInProject = false
 	private var logOffset = 0L
 	private val pendingLog = StringBuilder()
 	private val logHandler = Handler(Looper.getMainLooper())
@@ -116,13 +117,7 @@ class GodotImportActivity : Activity(), GodotHost {
 		}
 
 		titleView.text = getString(R.string.safe_import_title, File(projectPath).name)
-		logFile = File(cacheDir, LOG_FILE_NAME)
-		try {
-			logFile?.writeText("")
-		} catch (t: Throwable) {
-			Log.w(TAG, "Unable to reset safe import log", t)
-			logFile = File(cacheDir, "safe_import_${System.currentTimeMillis()}.log")
-		}
+		logFile = prepareLogFile()
 
 		exitButton.setOnClickListener { onExitPressed() }
 		reloadButton.setOnClickListener { onReloadPressed() }
@@ -141,6 +136,27 @@ class GodotImportActivity : Activity(), GodotHost {
 		spinner = findViewById(R.id.safe_import_spinner)
 		exitButton = findViewById(R.id.safe_import_exit)
 		reloadButton = findViewById(R.id.safe_import_reload)
+	}
+
+	private fun prepareLogFile(): File {
+		val projectLog = File(projectPath, PROJECT_LOG_FILE_NAME)
+		try {
+			projectLog.parentFile?.mkdirs()
+			projectLog.writeText("")
+			logSavedInProject = true
+			return projectLog
+		} catch (t: Throwable) {
+			Log.w(TAG, "Unable to write safe import log into project", t)
+		}
+
+		val cacheLog = File(cacheDir, CACHE_LOG_FILE_NAME)
+		try {
+			cacheLog.writeText("")
+		} catch (t: Throwable) {
+			Log.w(TAG, "Unable to reset safe import log in cache", t)
+		}
+		logSavedInProject = false
+		return cacheLog
 	}
 
 	private fun startEngine() {
@@ -243,14 +259,17 @@ class GodotImportActivity : Activity(), GodotHost {
 		}
 
 		if (sawDone) {
-			setStatus(getString(R.string.safe_import_done))
+			val logPath = logFile?.absolutePath.orEmpty()
+			appendLogLine("LOG: $logPath")
+			if (logSavedInProject) {
+				setStatus(getString(R.string.safe_import_done_with_log, logPath))
+			} else {
+				setStatus(getString(R.string.safe_import_done_cache_log, logPath))
+			}
 			progressBar.progress = progressBar.max
 			spinner.advance()
-			Handler(Looper.getMainLooper()).postDelayed({
-				if (!destroyed) {
-					finishAndKillProcess()
-				}
-			}, SUCCESS_RETURN_DELAY_MS)
+			exitButton.isEnabled = true
+			reloadButton.isEnabled = true
 		} else {
 			setStatus(getString(R.string.safe_import_failed))
 			exitButton.isEnabled = true

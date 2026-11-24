@@ -29,6 +29,8 @@
 	<string name="safe_import_running">Mengimpor...</string>
 	<string name="safe_import_progress">%1$d/%2$d %3$s</string>
 	<string name="safe_import_done">Import selesai</string>
+	<string name="safe_import_done_with_log">Import selesai — log disimpan di %1$s</string>
+	<string name="safe_import_done_cache_log">Import selesai — log disimpan di cache: %1$s</string>
 	<string name="safe_import_failed">Import gagal atau tidak selesai</string>
 	<string name="safe_import_engine_failed">Gagal memulai engine</string>
 	<string name="safe_import_file_failed">Gagal mengimpor: %1$s</string>

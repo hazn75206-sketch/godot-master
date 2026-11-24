@@ -83,7 +83,8 @@ Karena itu:
    `--headless --import --path <project> --log-file <path> --safe-import`
 5. Engine import memakai semua core (tanpa cap thread).
 6. Activity membaca log file, menampilkan log, progress, dan memutar spinner.
-7. Sukses: tampil "Import selesai" ±1 detik, lalu Activity ditutup dan kembali ke Project Manager.
+7. Sukses: layar tetap terbuka dengan status "Import selesai", log tersimpan di
+   `<project>/impor_save.log`, dan tombol Keluar / Reload tetap aktif.
 8. Gagal: tetap di layar; tombol Reload / Keluar aktif.
 9. Keluar saat berjalan: dialog "Yakin ingin keluar?" (Ya/Tidak).
 10. Reload: restart proses import dari awal.
@@ -196,9 +197,10 @@ Manifest:
   - Gunakan `ProcessPhoenix.triggerRebirth(...)` agar proses `:GodotImport` benar-benar baru
     (menghindari reuse state native Godot).
 - **Sukses**:
-  - Tampilkan status "Import selesai".
-  - Delay ±1 detik, lalu `finishAndRemoveTask()`.
-  - Project Manager (proses lain) tetap hidup dan kembali tampil.
+  - Tampilkan status "Import selesai" beserta path log.
+  - Layar tetap terbuka agar user bisa membaca/menyalin log.
+  - Log ditulis langsung ke `<project>/impor_save.log` (fallback ke cache bila gagal).
+  - Keluar/Reload aktif; Keluar kembali ke Project Manager.
 - **Gagal**:
   - Tetap di layar.
   - Tampilkan error terakhir.
@@ -225,8 +227,8 @@ Manifest:
    tapi Project Manager tetap hidup.
 3. **Keluar di tengah import** bisa meninggalkan `.godot` setengah jadi.
    Karena user menolak fitur hapus cache, dialog "Yakin ingin keluar?" adalah peringatannya.
-4. **Auto-return ke Project Manager** bergantung pada proses Project Manager masih hidup.
-   Biasanya tetap hidup karena beda proses dan sedang background.
+4. **Layar import tetap terbuka setelah selesai**; user menutupnya lewat tombol Keluar.
+   Project Manager tetap hidup di proses lain dan kembali tampil setelah Keluar.
 
 ## Verifikasi
 
@@ -258,6 +260,6 @@ Manifest:
 - [x] Progress lines di `editor_file_system.cpp` + `EditorProgress::step()`
 - [x] Dialog "Yakin ingin keluar?" (Ya/Tidak)
 - [x] Reload via `ProcessPhoenix`
-- [x] Auto-return setelah sukses
+- [x] Layar tetap terbuka setelah sukses + log ke `<project>/impor_save.log`
 - [ ] Build APK (butuh SDK/Gradle/SCons; belum tersedia di environment ini)
 - [ ] Tes di HP 3 GB + project besar
