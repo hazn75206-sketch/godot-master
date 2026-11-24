@@ -164,17 +164,39 @@ jobs:
       - name: Setup Python and SCons
         uses: ./.github/actions/godot-deps
 
+      - name: Download Swappy
+        shell: sh
+        id: swappy_sdk
+        run: |
+          if python ./misc/scripts/install_swappy_android.py; then
+            echo "SWAPPY_ENABLED=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Swappy installation failed, building without Swappy support."
+            echo "SWAPPY_ENABLED=no" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download Perfetto
+        shell: sh
+        id: perfetto_sdk
+        run: |
+          if python ./misc/scripts/install_perfetto.py; then
+            echo "PROFILER_ENABLED=perfetto" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Perfetto installation failed, building without Perfetto support."
+            echo "PROFILER_ENABLED=none" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build template_debug (arm64)
         uses: ./.github/actions/godot-build
         with:
-          scons-flags: ${{ env.SCONS_FLAGS }} arch=arm64 production=yes -j4
+          scons-flags: ${{ env.SCONS_FLAGS }} arch=arm64 production=yes -j4 profiler=${{ steps.perfetto_sdk.outputs.PROFILER_ENABLED }} swappy=${{ steps.swappy_sdk.outputs.SWAPPY_ENABLED }}
           platform: android
           target: template_debug
 
       - name: Build template_release (arm64)
         uses: ./.github/actions/godot-build
         with:
-          scons-flags: ${{ env.SCONS_FLAGS }} arch=arm64 production=yes -j4
+          scons-flags: ${{ env.SCONS_FLAGS }} arch=arm64 production=yes -j4 profiler=${{ steps.perfetto_sdk.outputs.PROFILER_ENABLED }} swappy=${{ steps.swappy_sdk.outputs.SWAPPY_ENABLED }}
           platform: android
           target: template_release
 
