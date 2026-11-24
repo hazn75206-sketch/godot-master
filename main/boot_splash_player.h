@@ -74,9 +74,9 @@ public:
 	void setup_custom(Node *p_scene, float p_duration, float p_hold);
 	void set_resume_tree(bool p_resume);
 
-	void _ready() override;
-	void _process(double p_delta) override;
-	void _draw() override;
+	void _ready();
+	void _process(double p_delta);
+	void _draw();
 
 	BootSplashPlayer();
 };
