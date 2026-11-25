@@ -123,6 +123,12 @@ Error EditorRun::run(const String &p_scene, const String &p_write_movie, const V
 	} else if (window_placement.force_fullscreen) {
 		args.push_back("--fullscreen");
 	}
+#else
+	// Follow the editor's "hide notch" (use the whole display) setting in the play window.
+	EditorSettings *editor_settings = EditorSettings::get_singleton();
+	if (editor_settings && editor_settings->has_setting("android/hide_display_cutout") && bool(editor_settings->get_setting("android/hide_display_cutout"))) {
+		args.push_back("--hide_display_cutout");
+	}
 #endif
 
 	List<String> breakpoints;

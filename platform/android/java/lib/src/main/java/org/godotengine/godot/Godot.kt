@@ -62,6 +62,7 @@ import org.godotengine.godot.io.directory.DirectoryAccessHandler
 import org.godotengine.godot.io.file.FileAccessHandler
 import org.godotengine.godot.mcp.McpServerService
 import org.godotengine.godot.nativeapi.GodotNativeBridge
+import org.godotengine.godot.notch.NotchHider
 import org.godotengine.godot.plugin.AndroidRuntimePlugin
 import org.godotengine.godot.plugin.GodotPlugin
 import org.godotengine.godot.plugin.GodotPluginRegistry
@@ -211,6 +212,8 @@ class Godot private constructor(val context: Context) {
 	private val isEdgeToEdge = AtomicBoolean(false)
 	// Di-set modul notch (editor): konten boleh masuk area poni.
 	private val ignoreDisplayCutout = AtomicBoolean(false)
+	// Di-set lewat arg --hide_display_cutout (play window mengikuti setting editor).
+	private var hideDisplayCutout = false
 	private var useDebugOpengl = false
 	internal var darkMode = false
 	private var backgroundColor: Int = Color.BLACK
@@ -292,6 +295,8 @@ class Godot private constructor(val context: Context) {
 					useDebugOpengl = true
 				} else if (commandLine[i] == "--edge_to_edge") {
 					isEdgeToEdge.set(true)
+				} else if (commandLine[i] == "--hide_display_cutout") {
+					hideDisplayCutout = true
 				} else if (commandLine[i] == "--fullscreen") {
 					useImmersive.set(true)
 					newArgs.add(commandLine[i])
@@ -495,6 +500,8 @@ class Godot private constructor(val context: Context) {
 	fun isInImmersiveMode() = useImmersive.get()
 
 	fun isInEdgeToEdgeMode() = isEdgeToEdge.get()
+
+	fun isHideDisplayCutoutEnabled() = hideDisplayCutout
 
 	fun setSystemBarsAppearance() {
 		val window = getActivity()?.window ?: return
@@ -902,6 +909,10 @@ class Godot private constructor(val context: Context) {
 					Log.w(TAG, e)
 				}
 			}
+		}
+
+		if (hideDisplayCutout) {
+			getActivity()?.let { NotchHider.setHidden(it, true) }
 		}
 
 		for (plugin in pluginRegistry.allPlugins) {

@@ -501,6 +501,10 @@ class GameMenuFragment : Fragment(), PopupMenu.OnMenuItemClickListener {
 		dragButton?.isVisible = menuListener?.isDragButtonEnabled() == true
 	}
 
+	internal fun setFullscreenButtonActive(active: Boolean) {
+		fullscreenButton?.isActivated = active
+	}
+
 	private fun updateAlwaysOnTop(enabled: Boolean) {
 		alwaysOnTopChecked = enabled
 		Utils.getDefaultSharedPreferences(context)?.edit {

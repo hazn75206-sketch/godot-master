@@ -77,23 +77,9 @@ void BootSplashPlayer::setup(const Ref<Image> &p_image, const Color &p_backgroun
 	duration = MAX(p_duration, 0.01f);
 	hold = MAX(p_hold, 0.0f);
 	elapsed = 0.0f;
-	custom_mode = false;
 	finished = false;
 	set_process(true);
 	queue_redraw();
-}
-
-void BootSplashPlayer::setup_custom(Node *p_scene, float p_duration, float p_hold) {
-	texture.unref();
-	duration = MAX(p_duration, 0.01f);
-	hold = MAX(p_hold, 0.0f);
-	elapsed = 0.0f;
-	custom_mode = true;
-	finished = false;
-	if (p_scene) {
-		add_child(p_scene);
-	}
-	set_process(true);
 }
 
 void BootSplashPlayer::set_resume_tree(bool p_resume) {
@@ -112,7 +98,9 @@ void BootSplashPlayer::_process(double p_delta) {
 	}
 
 	elapsed += (float)p_delta;
-	if (elapsed >= duration + hold) {
+	// Unity plays a full fade-in/hold/fade-out cycle, so it lasts longer than the exit-only presets.
+	const float total_time = (preset == PRESET_UNITY) ? (duration * 2.0f + hold) : (duration + hold);
+	if (elapsed >= total_time) {
 		_finish();
 		return;
 	}
@@ -128,12 +116,31 @@ void BootSplashPlayer::_draw() {
 
 	draw_rect(Rect2(Vector2(), view_size), background_color);
 
-	if (custom_mode || texture.is_null()) {
+	if (texture.is_null()) {
 		return;
 	}
 
 	Size2 image_size = texture->get_size();
 	if (image_size.x <= 0.0f || image_size.y <= 0.0f) {
+		return;
+	}
+
+	// Unity preset: fade the loading image in, keep it visible during load, then fade it out.
+	if (preset == PRESET_UNITY) {
+		const float fade_time = MAX(duration, 0.001f);
+		float unity_alpha = 1.0f;
+		if (elapsed < fade_time) {
+			unity_alpha = _smooth_progress(elapsed / fade_time);
+		} else if (elapsed < fade_time + hold) {
+			unity_alpha = 1.0f;
+		} else {
+			unity_alpha = 1.0f - _smooth_progress((elapsed - fade_time - hold) / fade_time);
+		}
+
+		float unity_fit = MIN(view_size.x / image_size.x, view_size.y / image_size.y);
+		Size2 unity_draw_size = image_size * unity_fit;
+		Vector2 unity_center = view_size * 0.5f;
+		draw_texture_rect(texture, Rect2(unity_center - unity_draw_size * 0.5f, unity_draw_size), false, Color(1.0f, 1.0f, 1.0f, unity_alpha));
 		return;
 	}
 

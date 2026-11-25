@@ -37,6 +37,7 @@ import androidx.core.view.isVisible
 import org.godotengine.editor.embed.GameMenuFragment
 import org.godotengine.godot.GodotLib
 import org.godotengine.godot.editor.utils.GameMenuUtils
+import org.godotengine.godot.notch.NotchHider
 import org.godotengine.godot.utils.ProcessPhoenix
 import org.godotengine.godot.xr.XRMode
 import org.godotengine.openxr.vendors.utils.*
@@ -226,6 +227,20 @@ abstract class GodotGame : BaseGodotGame() {
 	override fun isGameEmbeddingSupported() = !isNativeXRDevice(applicationContext)
 
 	override fun isMinimizedButtonEnabled() = isTaskRoot && !isNativeXRDevice(applicationContext)
+
+	override fun isFullScreenButtonEnabled() = !isGameEmbedded()
+
+	override fun onFullScreenUpdated(enabled: Boolean) {
+		// In the standalone play window "fullscreen" means using the whole display, notch included.
+		NotchHider.setHidden(this, enabled)
+	}
+
+	override fun onGodotSetupCompleted() {
+		super.onGodotSetupCompleted()
+		if (!isGameEmbedded()) {
+			gameMenuFragment?.setFullscreenButtonActive(godot?.isHideDisplayCutoutEnabled() == true)
+		}
+	}
 
 	override fun isCloseButtonEnabled() = !isNativeXRDevice(applicationContext)
 

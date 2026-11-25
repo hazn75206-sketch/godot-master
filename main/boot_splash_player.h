@@ -48,7 +48,7 @@ public:
 		PRESET_SLIDE_DOWN,
 		PRESET_PULSE,
 		PRESET_ROTATE,
-		PRESET_CUSTOM,
+		PRESET_UNITY,
 		PRESET_MAX,
 	};
 
@@ -60,7 +60,6 @@ private:
 	float hold = 0.5f;
 	float elapsed = 0.0f;
 	bool resume_tree = true;
-	bool custom_mode = false;
 	bool finished = false;
 
 	void _finish();
@@ -71,7 +70,6 @@ protected:
 
 public:
 	void setup(const Ref<Image> &p_image, const Color &p_background, Preset p_preset, float p_duration, float p_hold);
-	void setup_custom(Node *p_scene, float p_duration, float p_hold);
 	void set_resume_tree(bool p_resume);
 
 	void _ready();
