@@ -304,7 +304,10 @@ abstract class BaseGodotEditor : GodotActivity(), GameMenuFragment.GameMenuListe
 	}
 
 	override fun onCreate(savedInstanceState: Bundle?) {
-		installSplashScreen()
+		val splashScreen = installSplashScreen()
+		// Dismiss the system splash immediately; the window background matches the engine splash color,
+		// so there is no visible double splash and startup feels faster.
+		splashScreen.setKeepOnScreenCondition { false }
 
 		val editorWindowInfo = getEditorWindowInfo()
 		if (editorWindowInfo == EDITOR_MAIN_INFO || isRunGameInfo(editorWindowInfo)) {

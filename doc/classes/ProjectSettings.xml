@@ -300,16 +300,6 @@
 		<member name="animation/warnings/check_invalid_track_paths" type="bool" setter="" getter="" default="true">
 			If [code]true[/code], [AnimationMixer] prints the warning of no matching object of the track path in the scene.
 		</member>
-		<member name="application/boot_splash/animation" type="int" setter="" getter="" default="0" keywords="none, fade, zoom in, zoom out, slide left, slide right, slide up, slide down, pulse, rotate, unity">
-			Preset animation played for the boot splash in exported projects and when running the project from the editor. Requires [member application/boot_splash/image] and [member application/boot_splash/show_image] to be enabled. Set to [code]0[/code] to keep the static boot splash behavior.
-			[b]Note:[/b] Only applies to games, not the editor or project manager. The [code]Unity[/code] preset fades the image in, holds it, then fades it out.
-		</member>
-		<member name="application/boot_splash/animation_duration" type="float" setter="" getter="" default="1.5">
-			Duration of the boot splash animation (in seconds). For exit-only presets this is the exit animation duration after the hold time. For the [code]Unity[/code] preset this is the duration of both the fade-in and the fade-out.
-		</member>
-		<member name="application/boot_splash/animation_hold" type="float" setter="" getter="" default="0.5">
-			Time (in seconds) the boot splash stays fully visible before the exit animation (or the fade-out for the [code]Unity[/code] preset) starts.
-		</member>
 		<member name="application/boot_splash/bg_color" type="Color" setter="" getter="" default="Color(0.14, 0.14, 0.14, 1)">
 			Background color for the boot splash.
 		</member>

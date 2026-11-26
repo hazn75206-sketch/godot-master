@@ -1,13 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 	<style name="GodotEditorTheme" parent="@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen">
+		<!-- Same color as the engine editor splash, so dismissing the Android splash early shows no flash. -->
+		<item name="android:windowBackground">@color/editor_splash_bg</item>
 	</style>
 
 	<style name="GodotGameTheme" parent="GodotEditorTheme">
 		<item name="android:windowIsTranslucent">true</item>
+		<item name="android:windowBackground">@android:color/transparent</item>
 	</style>
 
-	<style name="GodotEditorSplashScreenTheme" parent="Theme.SplashScreen.IconBackground">
+	<style name="GodotEditorSplashScreenTheme" parent="Theme.SplashScreen">
+		<!-- Hide the system splash icon and use the engine splash color so there is no visible double splash. -->
+		<item name="windowSplashScreenBackground">@color/editor_splash_bg</item>
+		<item name="windowSplashScreenAnimatedIcon">@drawable/splash_icon_empty</item>
 		<!-- Set the theme of the Activity that directly follows your splash
 		screen. This is required. -->
 		<item name="postSplashScreenTheme">@style/GodotEditorTheme</item>

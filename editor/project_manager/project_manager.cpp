@@ -596,6 +596,14 @@ void ProjectManager::_run_project_confirm() {
 		args.push_back("--path");
 		args.push_back(path);
 
+#ifdef ANDROID_ENABLED
+		// Follow the editor's "hide notch" (use the whole display) setting in the play window.
+		EditorSettings *editor_settings = EditorSettings::get_singleton();
+		if (editor_settings && editor_settings->has_setting("android/hide_display_cutout") && bool(editor_settings->get_setting("android/hide_display_cutout"))) {
+			args.push_back("--hide_display_cutout");
+		}
+#endif
+
 		Error err = OS::get_singleton()->create_instance(args);
 		ERR_FAIL_COND(err);
 	}

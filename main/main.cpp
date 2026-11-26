@@ -61,7 +61,6 @@
 #include "core/version.h"
 #include "drivers/register_driver_types.h"
 #include "main/app_icon.gen.h"
-#include "main/boot_splash_player.h"
 #include "main/main_timer_sync.h"
 #include "main/performance.h"
 #include "main/splash.gen.h"
@@ -3990,20 +3989,9 @@ void Main::setup_boot_logo() {
 #endif
 
 	if (show_logo) { //boot logo!
-		const int boot_animation = GLOBAL_DEF_BASIC(PropertyInfo(Variant::INT, "application/boot_splash/animation", PROPERTY_HINT_ENUM, "None,Fade,Zoom In,Zoom Out,Slide Left,Slide Right,Slide Up,Slide Down,Pulse,Rotate,Unity"), 0);
-		GLOBAL_DEF_BASIC(PropertyInfo(Variant::FLOAT, "application/boot_splash/animation_duration", PROPERTY_HINT_RANGE, "0.1,10.0,0.1,suffix:s"), 1.5f);
-		GLOBAL_DEF_BASIC(PropertyInfo(Variant::FLOAT, "application/boot_splash/animation_hold", PROPERTY_HINT_RANGE, "0.0,10.0,0.1,suffix:s"), 0.5f);
 		const bool boot_logo_image = GLOBAL_DEF_BASIC("application/boot_splash/show_image", true);
-		// The Unity preset fades the image in from the background, so keep the static splash image hidden
-		// and let the animated overlay draw it for a seamless transition.
-		const bool static_show_image = boot_logo_image && boot_animation != BootSplashPlayer::PRESET_UNITY;
-		const bool animated_splash = !editor && !project_manager && boot_animation != BootSplashPlayer::PRESET_NONE;
 
 		RSE::SplashStretchMode boot_stretch_mode = GLOBAL_DEF_BASIC(PropertyInfo(Variant::INT, "application/boot_splash/stretch_mode", PROPERTY_HINT_ENUM, "Disabled,Keep,Keep Width,Keep Height,Cover,Ignore"), 1);
-		if (animated_splash) {
-			// Match the animated overlay's aspect-fit so the transition from the static boot splash is seamless.
-			boot_stretch_mode = RSE::SPLASH_STRETCH_MODE_KEEP;
-		}
 		const bool boot_logo_filter = GLOBAL_DEF_BASIC("application/boot_splash/use_filter", true);
 		String boot_logo_path = GLOBAL_DEF_BASIC(PropertyInfo(Variant::STRING, "application/boot_splash/image", PROPERTY_HINT_FILE, "*.png"), String());
 
@@ -4021,7 +4009,7 @@ void Main::setup_boot_logo() {
 
 		Ref<Image> boot_logo;
 
-		if (static_show_image) {
+		if (boot_logo_image) {
 			if (!boot_logo_path.is_empty()) {
 				boot_logo.instantiate();
 				Error load_err = ImageLoader::load_image(boot_logo_path, boot_logo);
@@ -4248,11 +4236,6 @@ int Main::start() {
 
 	uint64_t minimum_time_msec = GLOBAL_DEF(PropertyInfo(Variant::INT, "application/boot_splash/minimum_display_time", PROPERTY_HINT_RANGE, "0,100,1,or_greater,suffix:ms"), 0);
 	if (Engine::get_singleton()->is_editor_hint()) {
-		minimum_time_msec = 0;
-	}
-	const int boot_animation_setting = GLOBAL_DEF_BASIC(PropertyInfo(Variant::INT, "application/boot_splash/animation", PROPERTY_HINT_ENUM, "None,Fade,Zoom In,Zoom Out,Slide Left,Slide Right,Slide Up,Slide Down,Pulse,Rotate,Unity"), 0);
-	if (!editor && !project_manager && boot_animation_setting != BootSplashPlayer::PRESET_NONE) {
-		// The animated overlay handles the splash timing once the main loop starts.
 		minimum_time_msec = 0;
 	}
 
@@ -4846,45 +4829,6 @@ int Main::start() {
 
 				ERR_FAIL_NULL_V_MSG(scene, EXIT_FAILURE, "Failed loading scene: " + local_game_path + ".");
 				sml->add_current_scene(scene);
-
-				const int boot_animation = GLOBAL_DEF_BASIC(PropertyInfo(Variant::INT, "application/boot_splash/animation", PROPERTY_HINT_ENUM, "None,Fade,Zoom In,Zoom Out,Slide Left,Slide Right,Slide Up,Slide Down,Pulse,Rotate,Unity"), 0);
-				const bool splash_show_image = GLOBAL_DEF_BASIC("application/boot_splash/show_image", true);
-				if (boot_animation != BootSplashPlayer::PRESET_NONE && splash_show_image && DisplayServer::get_singleton()->get_name() != "headless") {
-					const float animation_duration = GLOBAL_DEF_BASIC(PropertyInfo(Variant::FLOAT, "application/boot_splash/animation_duration", PROPERTY_HINT_RANGE, "0.1,10.0,0.1,suffix:s"), 1.5f);
-					const float animation_hold = GLOBAL_DEF_BASIC(PropertyInfo(Variant::FLOAT, "application/boot_splash/animation_hold", PROPERTY_HINT_RANGE, "0.0,10.0,0.1,suffix:s"), 0.5f);
-					const Color splash_bg = GLOBAL_DEF_BASIC("application/boot_splash/bg_color", Color(0.14f, 0.14f, 0.14f));
-
-					CanvasLayer *splash_layer = memnew(CanvasLayer);
-					splash_layer->set_layer(1024);
-					BootSplashPlayer *splash_player = memnew(BootSplashPlayer);
-					splash_layer->add_child(splash_player);
-					splash_player->set_resume_tree(!sml->is_paused());
-					sml->set_pause(true);
-					sml->get_root()->add_child(splash_layer);
-
-					BootSplashPlayer::Preset effective_preset = (BootSplashPlayer::Preset)boot_animation;
-
-					Ref<Image> splash_image;
-					String splash_path = GLOBAL_DEF_BASIC(PropertyInfo(Variant::STRING, "application/boot_splash/image", PROPERTY_HINT_FILE, "*.png"), String());
-					if (splash_path.begins_with("uid://")) {
-						const ResourceUID::ID logo_id = ResourceUID::get_singleton()->text_to_id(splash_path);
-						if (ResourceUID::get_singleton()->has_id(logo_id)) {
-							splash_path = ResourceUID::get_singleton()->get_id_path(logo_id).strip_edges();
-						} else {
-							splash_path = String();
-						}
-					}
-					if (!splash_path.is_empty()) {
-						splash_image.instantiate();
-						if (ImageLoader::load_image(splash_path, splash_image) != OK) {
-							splash_image.unref();
-						}
-					}
-					if (splash_image.is_null() || splash_image->is_empty()) {
-						splash_image = memnew(Image(boot_splash_png));
-					}
-					splash_player->setup(splash_image, splash_bg, effective_preset, animation_duration, animation_hold);
-				}
 
 #ifdef MACOS_ENABLED
 #ifndef TOOLS_ENABLED
