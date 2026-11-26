@@ -300,6 +300,17 @@
 		<member name="animation/warnings/check_invalid_track_paths" type="bool" setter="" getter="" default="true">
 			If [code]true[/code], [AnimationMixer] prints the warning of no matching object of the track path in the scene.
 		</member>
+		<member name="application/boot_splash/animation" type="int" setter="" getter="" default="0" keywords="none, demo, fade, rise">
+			Preset animation played for the boot splash in exported projects and when running the project from the editor. Set to [code]0[/code] to keep the static boot splash behavior.
+			When set to [code]1[/code] ([code]Demo Fade &amp; Rise[/code]), the boot splash image fades in from [member application/boot_splash/bg_color], moves slightly upward, holds, and then fades back out before the main scene is shown. Requires [member application/boot_splash/image] to be set. The static boot splash image is hidden while this animation plays for a seamless transition.
+			[b]Note:[/b] Only applies to games, not the editor or project manager. Particle effects are not included.
+		</member>
+		<member name="application/boot_splash/animation_duration" type="float" setter="" getter="" default="4.0">
+			Total duration of the boot splash animation (in seconds), including the fade-in, hold, and fade-out phases.
+		</member>
+		<member name="application/boot_splash/animation_hold" type="float" setter="" getter="" default="2.3">
+			Time (in seconds) the boot splash image stays fully visible between the fade-in and fade-out phases.
+		</member>
 		<member name="application/boot_splash/bg_color" type="Color" setter="" getter="" default="Color(0.14, 0.14, 0.14, 1)">
 			Background color for the boot splash.
 		</member>
