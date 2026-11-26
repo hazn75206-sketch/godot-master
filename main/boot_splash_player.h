@@ -30,6 +30,7 @@
 
 #pragma once
 
+#include "core/io/resource.h"
 #include "scene/gui/control.h"
 #include "scene/resources/texture.h"
 
@@ -49,7 +50,11 @@ private:
 	float duration = 4.0f;
 	float hold = 2.3f;
 	float elapsed = 0.0f;
-	bool resume_tree = true;
+	float fade_out_start = -1.0f;
+	String scene_path;
+	Ref<Resource> pending_scene_resource;
+	bool load_requested = false;
+	bool load_finished = false;
 	bool finished = false;
 
 	void _finish();
@@ -61,7 +66,7 @@ protected:
 
 public:
 	void setup(const Ref<Image> &p_image, const Color &p_background, Preset p_preset, float p_duration, float p_hold);
-	void set_resume_tree(bool p_resume);
+	void set_scene_path(const String &p_path);
 
 	BootSplashPlayer();
 };

@@ -4247,7 +4247,8 @@ int Main::start() {
 		minimum_time_msec = 0;
 	}
 	const int boot_animation_setting = GLOBAL_DEF_BASIC(PropertyInfo(Variant::INT, "application/boot_splash/animation", PROPERTY_HINT_ENUM, "None,Demo Fade & Rise"), 0);
-	if (!editor && !project_manager && boot_animation_setting == BootSplashPlayer::PRESET_DEMO) {
+	const bool animated_splash = !editor && !project_manager && boot_animation_setting == BootSplashPlayer::PRESET_DEMO;
+	if (animated_splash) {
 		// The animated overlay handles the splash timing once the main loop starts.
 		minimum_time_msec = 0;
 	}
@@ -4740,14 +4741,7 @@ int Main::start() {
 			sml->set_quit_on_go_back(GLOBAL_GET("application/config/quit_on_go_back"));
 			String appname = GLOBAL_GET("application/config/name");
 			appname = TranslationServer::get_singleton()->translate(appname);
-#ifdef DEBUG_ENABLED
-			// Append a suffix to the window title to denote that the project is running
-			// from a debug build (including the editor). Since this results in lower performance,
-			// this should be clearly presented to the user.
-			DisplayServer::get_singleton()->window_set_title(vformat("%s (DEBUG)", appname));
-#else
 			DisplayServer::get_singleton()->window_set_title(appname);
-#endif
 
 			bool snap_controls = GLOBAL_GET("gui/common/snap_controls_to_pixels");
 			sml->get_root()->set_snap_controls_to_pixels(snap_controls);
@@ -4834,18 +4828,13 @@ int Main::start() {
 			Crypto::load_default_certificates(GLOBAL_GET("network/tls/certificate_bundle_override"));
 
 			if (!game_path.is_empty()) {
-				Node *scene = nullptr;
-				Ref<PackedScene> scenedata = ResourceLoader::load(local_game_path);
-				if (scenedata.is_valid()) {
-					scene = scenedata->instantiate();
-				}
+				const bool deferred_splash = animated_splash && DisplayServer::get_singleton()->get_name() != "headless";
+				bool splash_started = false;
 
-				ERR_FAIL_NULL_V_MSG(scene, EXIT_FAILURE, "Failed loading scene: " + local_game_path + ".");
-				sml->add_current_scene(scene);
-
-				const int boot_animation = GLOBAL_DEF_BASIC(PropertyInfo(Variant::INT, "application/boot_splash/animation", PROPERTY_HINT_ENUM, "None,Demo Fade & Rise"), 0);
-				const bool splash_show_image = GLOBAL_DEF_BASIC("application/boot_splash/show_image", true);
-				if (boot_animation == BootSplashPlayer::PRESET_DEMO && DisplayServer::get_singleton()->get_name() != "headless") {
+				if (deferred_splash) {
+					// Start the animated splash immediately and load the main scene in the
+					// background, so the animation does not wait for the scene to be ready.
+					const bool splash_show_image = GLOBAL_DEF_BASIC("application/boot_splash/show_image", true);
 					const float animation_duration = GLOBAL_DEF_BASIC(PropertyInfo(Variant::FLOAT, "application/boot_splash/animation_duration", PROPERTY_HINT_RANGE, "0.5,10.0,0.1,suffix:s"), 4.0f);
 					const float animation_hold = GLOBAL_DEF_BASIC(PropertyInfo(Variant::FLOAT, "application/boot_splash/animation_hold", PROPERTY_HINT_RANGE, "0.0,10.0,0.1,suffix:s"), 2.3f);
 					const Color splash_bg = GLOBAL_DEF_BASIC("application/boot_splash/bg_color", Color(0.14f, 0.14f, 0.14f));
@@ -4877,12 +4866,23 @@ int Main::start() {
 						CanvasLayer *splash_layer = memnew(CanvasLayer);
 						splash_layer->set_layer(1024);
 						BootSplashPlayer *splash_player = memnew(BootSplashPlayer);
+						splash_player->set_scene_path(local_game_path);
 						splash_layer->add_child(splash_player);
-						splash_player->set_resume_tree(!sml->is_paused());
-						sml->set_pause(true);
 						sml->get_root()->add_child(splash_layer);
 						splash_player->setup(splash_image, splash_bg, BootSplashPlayer::PRESET_DEMO, animation_duration, animation_hold);
+						splash_started = true;
 					}
+				}
+
+				if (!splash_started) {
+					Node *scene = nullptr;
+					Ref<PackedScene> scenedata = ResourceLoader::load(local_game_path);
+					if (scenedata.is_valid()) {
+						scene = scenedata->instantiate();
+					}
+
+					ERR_FAIL_NULL_V_MSG(scene, EXIT_FAILURE, "Failed loading scene: " + local_game_path + ".");
+					sml->add_current_scene(scene);
 				}
 
 #ifdef MACOS_ENABLED

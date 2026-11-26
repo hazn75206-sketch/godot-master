@@ -30,9 +30,11 @@
 
 #include "boot_splash_player.h"
 
+#include "core/io/resource_loader.h"
 #include "core/math/math_funcs.h"
 #include "scene/main/scene_tree.h"
 #include "scene/resources/image_texture.h"
+#include "scene/resources/packed_scene.h"
 
 static float _cubic_ease_in_out(float p_value) {
 	float t = CLAMP(p_value, 0.0f, 1.0f);
@@ -57,12 +59,54 @@ void BootSplashPlayer::_notification(int p_what) {
 			if (finished) {
 				break;
 			}
+
 			elapsed += (float)get_process_delta_time();
-			if (elapsed >= duration) {
-				_finish();
-			} else {
-				queue_redraw();
+
+			if (!scene_path.is_empty() && !load_finished) {
+				if (!load_requested) {
+					Error err = ResourceLoader::load_threaded_request(scene_path);
+					load_requested = true;
+					if (err != OK) {
+						ERR_PRINT("Failed to start loading the main scene: " + scene_path);
+						load_finished = true;
+					}
+				}
+
+				if (!load_finished) {
+					const ResourceLoader::ThreadLoadStatus status = ResourceLoader::load_threaded_get_status(scene_path);
+					if (status == ResourceLoader::THREAD_LOAD_LOADED) {
+						pending_scene_resource = ResourceLoader::load_threaded_get(scene_path);
+						load_finished = true;
+						if (pending_scene_resource.is_null()) {
+							ERR_PRINT("Failed to retrieve the main scene: " + scene_path);
+						}
+					} else if (status == ResourceLoader::THREAD_LOAD_FAILED || status == ResourceLoader::THREAD_LOAD_INVALID_RESOURCE) {
+						ERR_PRINT("Failed to load the main scene: " + scene_path);
+						load_finished = true;
+					}
+				}
 			}
+
+			const bool scene_ready = scene_path.is_empty() || load_finished;
+
+			const float total_time = MAX(duration, 0.01f);
+			const float hold_time = CLAMP(hold, 0.0f, MAX(total_time - 0.01f, 0.0f));
+			const float anim_time = MAX(total_time - hold_time, 0.001f);
+			const float fade_in = anim_time * (0.7f / 1.7f);
+			const float fade_out = anim_time * (1.0f / 1.7f);
+
+			// Keep the logo on screen until the main scene is ready, then fade out.
+			if (elapsed >= fade_in + hold_time && scene_ready) {
+				if (fade_out_start < 0.0f) {
+					fade_out_start = elapsed;
+				}
+				if (elapsed - fade_out_start >= fade_out) {
+					_finish();
+					break;
+				}
+			}
+
+			queue_redraw();
 		} break;
 		case NOTIFICATION_DRAW: {
 			_draw();
@@ -80,10 +124,17 @@ void BootSplashPlayer::_finish() {
 	finished = true;
 	set_process(false);
 
-	if (resume_tree) {
-		SceneTree *tree = get_tree();
-		if (tree) {
-			tree->set_pause(false);
+	SceneTree *tree = get_tree();
+	if (!scene_path.is_empty()) {
+		PackedScene *packed_scene = Object::cast_to<PackedScene>(pending_scene_resource.ptr());
+		Node *scene = packed_scene ? packed_scene->instantiate() : nullptr;
+		if (scene && tree) {
+			tree->add_current_scene(scene);
+		} else {
+			ERR_PRINT("Failed to instantiate the main scene: " + scene_path);
+			if (tree) {
+				tree->quit();
+			}
 		}
 	}
 
@@ -102,13 +153,17 @@ void BootSplashPlayer::setup(const Ref<Image> &p_image, const Color &p_backgroun
 	duration = MAX(p_duration, 0.01f);
 	hold = MAX(p_hold, 0.0f);
 	elapsed = 0.0f;
+	fade_out_start = -1.0f;
+	pending_scene_resource.unref();
+	load_requested = false;
+	load_finished = false;
 	finished = false;
 	set_process(true);
 	queue_redraw();
 }
 
-void BootSplashPlayer::set_resume_tree(bool p_resume) {
-	resume_tree = p_resume;
+void BootSplashPlayer::set_scene_path(const String &p_path) {
+	scene_path = p_path;
 }
 
 void BootSplashPlayer::_draw() {
@@ -146,11 +201,12 @@ void BootSplashPlayer::_draw() {
 		const float p = elapsed / fade_in;
 		overlay_alpha = 1.0f - _cubic_ease_in_out(p);
 		offset_y = Math::lerp(rise, 0.0f, _quad_ease_in_out(p));
-	} else if (elapsed < fade_in + hold_time) {
+	} else if (fade_out_start < 0.0f) {
+		// Hold the logo while waiting for the main scene to finish loading.
 		overlay_alpha = 0.0f;
 		offset_y = 0.0f;
 	} else {
-		const float p = CLAMP((elapsed - fade_in - hold_time) / MAX(fade_out, 0.001f), 0.0f, 1.0f);
+		const float p = CLAMP((elapsed - fade_out_start) / MAX(fade_out, 0.001f), 0.0f, 1.0f);
 		overlay_alpha = _cubic_ease_in_out(p);
 		offset_y = Math::lerp(0.0f, -rise, _quad_ease_in_out(p));
 	}

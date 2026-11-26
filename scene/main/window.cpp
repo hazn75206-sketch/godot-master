@@ -3460,16 +3460,6 @@ void Window::_update_displayed_title() {
 	}
 	displayed_title = atr(title_text);
 
-#ifdef DEBUG_ENABLED
-	if (window_id == DisplayServerEnums::MAIN_WINDOW_ID && !Engine::get_singleton()->is_project_manager_hint()) {
-		// Append a suffix to the window title to denote that the project is running
-		// from a debug build (including the editor, excluding the project manager).
-		// Since this results in lower performance, this should be clearly presented
-		// to the user.
-		displayed_title = vformat("%s (DEBUG)", displayed_title);
-	}
-#endif
-
 	if (embedder) {
 		embedder->_sub_window_update(this);
 	} else if (window_id != DisplayServerEnums::INVALID_WINDOW_ID) {

@@ -302,7 +302,7 @@
 		</member>
 		<member name="application/boot_splash/animation" type="int" setter="" getter="" default="0" keywords="none, demo, fade, rise">
 			Preset animation played for the boot splash in exported projects and when running the project from the editor. Set to [code]0[/code] to keep the static boot splash behavior.
-			When set to [code]1[/code] ([code]Demo Fade &amp; Rise[/code]), the boot splash image fades in from [member application/boot_splash/bg_color], moves slightly upward, holds, and then fades back out before the main scene is shown. Requires [member application/boot_splash/image] to be set. The static boot splash image is hidden while this animation plays for a seamless transition.
+			When set to [code]1[/code] ([code]Demo Fade &amp; Rise[/code]), the animation starts immediately on launch while the main scene is loaded in the background. The boot splash image fades in from [member application/boot_splash/bg_color], moves slightly upward, and holds until the main scene is ready, then fades back out. Requires [member application/boot_splash/image] to be set. The static boot splash image is hidden while this animation plays for a seamless transition.
 			[b]Note:[/b] Only applies to games, not the editor or project manager. Particle effects are not included.
 		</member>
 		<member name="application/boot_splash/animation_duration" type="float" setter="" getter="" default="4.0">
